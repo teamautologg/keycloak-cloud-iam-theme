@@ -1,6 +1,6 @@
 {
   "themes": [{
-    "name" : "cloud-iam-redesign",
+    "name" : "autologg",
     "types": [ "login", "email" ]
   }]
 }

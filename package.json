@@ -8,7 +8,7 @@
   ],
   "description": "Cloud-IAM Theme for Keycloak",
   "scripts": {
-    "build": "parcel build --dist-dir=./src/main/resources/theme/cloud-iam-redesign/login/resources/dist/ src/main/resources/theme/cloud-iam-redesign/login/resources/scss/*.scss"
+    "build": "parcel build --dist-dir=./src/main/resources/theme/autologg/login/resources/dist/ src/main/resources/theme/autologg/login/resources/scss/*.scss"
   },
   "author": "Francois-Guillaume Ribreau <npm@fgribreau.com> (http://fgribreau.com/)",
   "license": "MIT",
@@ -23,7 +23,7 @@
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^5.1.0",
     "eslint-plugin-standard": "^5.0.0",
-    "parcel": "^2.0.0-rc.0",
+    "parcel": "^2.0.0",
     "postcss-fontpath": "^1.0.0"
   },
   "dependencies": {
