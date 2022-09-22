@@ -11,6 +11,7 @@
     --pf-global--active-color--100: #1ea0ef;
     --pf-global--primary-color--dark-100: #1ea0ef;
     --pf-global--link--Color--dark: #1ea0ef;
+    --pf-c-background-image--BackgroundImage: none;
     
 }
 
@@ -550,7 +551,7 @@ ul#kc-totp-supported-apps {
     div.kc-logo-text {
         margin: 0;
         width: 150px;
-        height: 32px;
+        height: 60px;
         background-size: 100%;
     }
 
