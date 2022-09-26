@@ -530,7 +530,7 @@ ul#kc-totp-supported-apps {
 @media (max-width: 767px) {
 
     .login-pf body {
-        background: #f0f4fa;
+        background: white;
     }
 
     #kc-header {
