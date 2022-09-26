@@ -20,7 +20,7 @@
 }
 
 .login-pf body {
-    background: url("../img/keycloak-bg.png") no-repeat center center fixed;
+    background: #f0f4fa;
     background-size: cover;
     height: 100%;
 }
@@ -530,7 +530,7 @@ ul#kc-totp-supported-apps {
 @media (max-width: 767px) {
 
     .login-pf body {
-        background: white;
+        background: #f0f4fa;
     }
 
     #kc-header {
