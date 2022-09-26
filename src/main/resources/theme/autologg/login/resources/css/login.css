@@ -20,7 +20,8 @@
 }
 
 .login-pf body {
-    background: #f0f4fa;
+    background: none;
+    background-color: #f0f4fa !important;
     background-size: cover;
     height: 100%;
 }
