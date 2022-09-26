@@ -21,6 +21,8 @@ steps:
   displayName: 'npm install and build'
 
 - task: Maven@3
+  env:
+    BuildNr: $(Build.BuildId)
   inputs:
     mavenPomFile: 'pom.xml'
     publishJUnitResults: false
