@@ -19,3 +19,26 @@ steps:
     npm install
     npm run build
   displayName: 'npm install and build'
+
+- task: Maven@3
+  inputs:
+    mavenPomFile: 'pom.xml'
+    publishJUnitResults: false
+    javaHomeOption: 'JDKVersion'
+    mavenVersionOption: 'Default'
+    mavenAuthenticateFeed: false
+    effectivePomSkip: false
+    sonarQubeRunAnalysis: false
+
+- task: CopyFiles@2
+  displayName: "Copy artifacts"
+  inputs:
+    contents: 'target/*.jar'
+    targetFolder: '$(Build.ArtifactStagingDirectory)'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'theme'
+    publishLocation: 'Container'
+    
