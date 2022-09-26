@@ -5,7 +5,7 @@
 
     <groupId>at.autologg</groupId>
     <artifactId>autologg_theme</artifactId>
-    <version>${env.BuildNr</version>
+    <version>${env.BuildNr}</version>
     <name>AUTOLOGG::KEYCLOAK::THEME</name>
     <description/>
     <packaging>jar</packaging>
