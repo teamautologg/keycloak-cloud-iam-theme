@@ -5,6 +5,10 @@
 
 trigger:
 - master
+- develop
+- feature/*
+- hotfix/*
+
 
 pool:
   vmImage: ubuntu-latest
