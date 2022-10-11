@@ -4,7 +4,7 @@
         ${msg("loginAccountTitle")}
     <#elseif section = "form">
     <div>
-        <h4>Bereits AutoLogg Nutzer? Bitte beachte folgende <a title="Info" target="_blank" href="https://www.autologg.com/autologg-id"><span>Info</span></a></h4>
+        <h4>${msg("loginHint")} <a title="Info" target="_blank" href="https://www.autologg.com/autologg-id"><span>${msg("loginHintInfo")} </span></a></h4>
     </div>
     <br/>
     <div id="kc-form">
