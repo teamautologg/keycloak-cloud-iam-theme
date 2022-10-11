@@ -4,9 +4,9 @@
         ${msg("loginAccountTitle")}
     <#elseif section = "form">
     <div>
-    <br/>
-        <h4>${msg("loginHint")}</h4>
+        <h4>Bereits AutoLogg Nutzer? Bitte beachte folgende <a title="Info" target="_blank" href="https://www.autologg.com/autologg-id"><span>Info</span></a></h4>
     </div>
+    <br/>
     <div id="kc-form">
       <div id="kc-form-wrapper">
         <#if realm.password>
