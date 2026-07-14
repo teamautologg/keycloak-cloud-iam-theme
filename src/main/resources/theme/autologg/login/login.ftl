@@ -3,9 +3,6 @@
     <#if section = "header">
         ${msg("loginAccountTitle")}
     <#elseif section = "form">
-    <div>
-        <h4>${msg("loginHint")} <a title="${msg("loginHintInfo")}" target="_blank" href="https://www.autologg.com/autologg-id"><span>${msg("loginHintInfo")} </span></a></h4>
-    </div>
     <br/>
     <div id="kc-form">
       <div id="kc-form-wrapper">
