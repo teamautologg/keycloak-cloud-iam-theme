@@ -1,4 +1,8 @@
-# Cloud-IAM Example Keycloak theme
+# AutoLogg Keycloak theme
+
+Keycloak theme for the AutoLogg realms (login + email). Forked from the Cloud-IAM example theme.
+
+The theme name is `autologg`, registered in `src/main/resources/META-INF/keycloak-themes.json`.
 
 ## Install dependencies
 
@@ -18,59 +22,30 @@ npm run build
 mvn package
 ```
 
+The build number is taken from the `BuildNr` environment variable (see `pom.xml`), which the Azure pipeline sets to `$(Build.BuildNumber)`. The resulting `target/*.jar` is published as the `theme` artifact and uploaded to the hosted Keycloak.
+
 ## Theme Development Workflow
 
-Build this theme `.jar` file with:
-
-```bash
-# build the theme and wrap it in a .jar file
-mvn package
-```
-
-Then start Keycloak IAM (in single-node mode) locally through docker and use the host `./src/main/resources/theme` folder as Keycloak deployment directory.
+Start Keycloak locally through docker; `./src/main/resources/theme` is mounted as the Keycloak themes directory, so template and message changes are picked up without rebuilding (theme caching is disabled in `docker-compose.yml`).
 
 ```bash
 docker compose up -d
 ```
 
-Connect to Keycloak console [http://localhost:8080](http://localhost:8080), click on `Themes` tab, and select `cloud-iam-redesign` in front of `Login Theme`.
+Connect to the Keycloak console [http://localhost:8080](http://localhost:8080) (admin/password), open a realm, and select `autologg` as `Login Theme` and `Email Theme` under `Realm Settings` → `Themes`.
 
-## More :
+## Texts
 
-If you want to activate the login, email or other theme, open :
+All user-facing texts live in message bundles, not in the templates:
 
-```bash
-src/main/resources/META-INF/keycloak-themes.json
-```
+- `src/main/resources/theme/autologg/login/messages/messages_{de,en}.properties`
+- `src/main/resources/theme/autologg/email/messages/messages_{de,en}.properties`
 
-change the type to put the themes you want :
+Notes:
 
-```bash
-{
-    "themes": [{
-        "name" : "cloud-iam-redesign",
-        "types": [ "login", "email" ]
-    }]
-}
-```
-
-## How to use this theme as a starter
-
-If you want to start developping your new theme based on our existing template, help yourself!
-
-Assuming your company is named `acme`, you'll have to setup a few things before building your own theme.
-
-- rename `src/main/resources/theme/cloud-iam-redesign` to `src/main/resources/theme/acme`
-- in `package.json`:
-  - adjust the name
-  - adjust the description
-  - adjust the `scripts.build` section accordingly with the new path `src/main/resources/theme/acme` in the parcel commands
-- in `pom.xml`:
-
-  - set your own group id
-  - set your own artifact id
-
-- in `src/main/resources/META-INF/keycloak-themes.json`, adjust the theme name to `acme`
+- Keys missing in a bundle fall back to Keycloak's own bundle, which produces mixed-language pages — keep `de` and `en` in sync.
+- Use `\uXXXX` escapes for non-ASCII characters, not HTML entities: entity text such as `&raquo;` is escaped by `kcSanitize()` and ends up visible on the page.
+- Message values go through `MessageFormat`, so a literal apostrophe has to be doubled (`don''t`).
 
 ## Resources
 
