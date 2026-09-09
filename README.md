@@ -1,4 +1,20 @@
-# Cloud-IAM Example Keycloak theme
+# AutoLogg Keycloak theme
+
+Keycloak theme for the AutoLogg realms (login + email). Forked from the Cloud-IAM example theme.
+
+The theme name is `autologg`, registered in `src/main/resources/META-INF/keycloak-themes.json`.
+
+## Install dependencies
+
+```
+npm install
+```
+
+## Compile theme scss files
+
+```
+npm run build
+```
 
 ## Build the theme extension
 
@@ -6,44 +22,32 @@
 mvn package
 ```
 
+The build number is taken from the `BuildNr` environment variable (see `pom.xml`), which the Azure pipeline sets to `$(Build.BuildNumber)`. The resulting `target/*.jar` is published as the `theme` artifact and uploaded to the hosted Keycloak.
+
 ## Theme Development Workflow
 
-Build this theme `.jar` file with:
+Start Keycloak locally through docker; `./src/main/resources/theme` is mounted as the Keycloak themes directory, so template and message changes are picked up without rebuilding (theme caching is disabled in `docker-compose.yml`).
 
 ```bash
-# build the theme and wrap it in a .jar file
-mvn package
-
-# move theme to /tmp/theme/ folder for futur use by keycloak
-mkdir -p /tmp/theme && cp -v target/*.jar /tmp/theme/
+docker compose up -d
 ```
 
-Then start Keycloak IAM (in single-node mode) locally through docker and use the host `/tmp/theme` folder as Keycloak deployment directory.
+Connect to the Keycloak console [http://localhost:8080](http://localhost:8080) (admin/password), open a realm, and select `autologg` as `Login Theme` and `Email Theme` under `Realm Settings` → `Themes`.
 
-```bash
-docker run -p 8080:8080 -e KEYCLOAK_USER=admin -e KEYCLOAK_PASSWORD=admin -v /tmp/theme:/opt/jboss/keycloak/standalone/deployments/ quay.io/keycloak/keycloak:15.0.0
-```
+## Texts
 
-Connect to Keycloak console [http://localhost:8080](http://localhost:8080), click on `Themes` tab, and select `cloud-iam` in front of `Login Theme`.
+All user-facing texts live in message bundles, not in the templates:
 
-## More :
+- `src/main/resources/theme/autologg/login/messages/messages_{de,en}.properties`
+- `src/main/resources/theme/autologg/email/messages/messages_{de,en}.properties`
 
-If you want to activate the login, email or other theme, open :
-```bash
-src/main/resources/META-INF/keycloak-themes.json
-```
-change the type to put the themes you want :
-```bash
-{
-    "themes": [{
-        "name" : "cloud-iam",
-        "types": [ "login", "email" ]
-    }]
-}
-```
+Notes:
 
+- Keys missing in a bundle fall back to Keycloak's own bundle, which produces mixed-language pages — keep `de` and `en` in sync.
+- Use `\uXXXX` escapes for non-ASCII characters, not HTML entities: entity text such as `&raquo;` is escaped by `kcSanitize()` and ends up visible on the page.
+- Message values go through `MessageFormat`, so a literal apostrophe has to be doubled (`don''t`).
 
 ## Resources
 
 - https://www.baeldung.com/spring-keycloak-custom-themes
-- https://github.com/InseeFrLab/keycloakify
+- see also https://www.keycloakify.dev/ (https://github.com/InseeFrLab/keycloakify)

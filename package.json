@@ -1,12 +1,12 @@
 {
-  "name": "cloud-iam-keycloak-theme",
+  "name": "autologg-keycloak-theme",
   "version": "1.0.0",
   "keywords": [
     "keycloak",
     "theme",
     "keycloak-theme"
   ],
-  "description": "Cloud-IAM Theme for Keycloak",
+  "description": "AutoLogg Theme for Keycloak",
   "scripts": {
     "build": "parcel build --dist-dir=./src/main/resources/theme/autologg/login/resources/dist/ src/main/resources/theme/autologg/login/resources/scss/*.scss"
   },
