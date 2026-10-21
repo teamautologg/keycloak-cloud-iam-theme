@@ -4,7 +4,7 @@ Keycloak extension for the AutoLogg realms, one jar:
 
 - **Theme `autologg`** (login + email), registered in `src/main/resources/META-INF/keycloak-themes.json`.
   It builds on Keycloak's `keycloak.v2` theme (PatternFly 5) and looks like the app's login screen:
-  Plus Jakarta Sans, accent `#0E9BF5`, a card next to the car picture, dark mode. E-mails get a
+  Plus Jakarta Sans, accent `#0E9BF5`, a centred card, dark mode. E-mails get a
   branded frame (logo, card, footer).
 - **Login link** ("magic link", AL-5388): the login and password pages also offer
   *Anmeldelink per E-Mail senden*. Java sources in `src/main/java/at/autologg/keycloak/loginlink`.

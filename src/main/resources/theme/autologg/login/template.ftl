@@ -1,8 +1,7 @@
 <#--
-  AutoLogg layout on top of keycloak.v2: card with the form on the left, the
-  picture of the app's login screen on the right (desktop only). Everything
-  inside the card is the keycloak.v2 markup, so all v2 page templates keep
-  working unchanged.
+  AutoLogg layout on top of keycloak.v2: logo and language switch, the form in
+  a centred card, legal links below. Everything inside the card is the
+  keycloak.v2 markup, so all v2 page templates keep working unchanged.
 -->
 <#import "field.ftl" as field>
 <#import "footer.ftl" as loginFooter>
@@ -280,13 +279,6 @@
       <a href="${msg("loginFooterImprintUrl")}" target="_blank" rel="noopener noreferrer">${msg("loginFooterImprint")}</a>
     </footer>
   </div>
-
-  <aside class="al-visual" aria-hidden="true">
-    <div class="al-visual-caption">
-      <strong>${msg("loginVisualTitle")}</strong>
-      <span>${msg("loginVisualText")}</span>
-    </div>
-  </aside>
 </div>
 </body>
 </html>

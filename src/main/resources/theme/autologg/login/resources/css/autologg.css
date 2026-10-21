@@ -165,10 +165,6 @@ body.al-body {
     height: auto;
 }
 
-.al-visual {
-    display: none;
-}
-
 @media (min-width: 640px) {
     .al-pane {
         justify-content: center;
@@ -178,50 +174,6 @@ body.al-body {
 
     .al-brand img {
         width: 128px;
-    }
-}
-
-@media (min-width: 1024px) {
-    .al-shell {
-        grid-template-columns: minmax(520px, 1fr) minmax(0, 1fr);
-    }
-
-    .al-visual {
-        display: flex;
-        align-items: flex-end;
-        margin: 24px 24px 24px 0;
-        border-radius: 24px;
-        background: #04293F url("../img/login-visual.jpg") center 70% / cover no-repeat;
-        overflow: hidden;
-        position: relative;
-    }
-
-    .al-visual::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(180deg, rgba(4, 41, 63, 0) 45%, rgba(4, 41, 63, 0.78) 100%);
-    }
-
-    .al-visual-caption {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        padding: 40px;
-        color: #FFFFFF;
-    }
-
-    .al-visual-caption strong {
-        font-size: 28px;
-        font-weight: 800;
-        line-height: 1.2;
-        letter-spacing: -0.01em;
-    }
-
-    .al-visual-caption span {
-        font-size: 16px;
-        color: rgba(255, 255, 255, 0.85);
     }
 }
 
