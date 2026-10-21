@@ -78,7 +78,7 @@
     --keycloak-card-top-color: transparent;
 }
 
-/* Dark mode: keycloak.v2 puts pf-v5-theme-dark on <html> when the system asks for it. */
+/* Dark mode: keycloak.v2 puts pf-v5-theme-dark on <html> when the system asks for it (darkMode=true in theme.properties). */
 :root.pf-v5-theme-dark {
     --al-accent-text: #8ECFF7;
     --al-accent-surface: rgba(14, 155, 245, 0.16);
@@ -321,6 +321,26 @@ body.al-body {
     outline: none;
 }
 
+/* Autofilled fields (browser or password manager) keep the field's look instead of a square blue box. */
+.al-card .pf-v5-c-form-control > input {
+    border-radius: var(--al-radius-control);
+}
+
+.al-card .pf-v5-c-form-control > input:-webkit-autofill,
+.al-card .pf-v5-c-form-control > input:-webkit-autofill:hover,
+.al-card .pf-v5-c-form-control > input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--al-text);
+    -webkit-box-shadow: 0 0 0 1000px var(--al-input-bg) inset;
+    box-shadow: 0 0 0 1000px var(--al-input-bg) inset;
+    caret-color: var(--al-text);
+    transition: background-color 600000s 0s;
+}
+
+.al-card .pf-v5-c-form-control:focus-within > input:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px var(--al-surface) inset;
+    box-shadow: 0 0 0 1000px var(--al-surface) inset;
+}
+
 .al-card .pf-v5-c-form-control.pf-m-readonly {
     --pf-v5-c-form-control--BackgroundColor: var(--al-neutral-chip);
 }
@@ -329,6 +349,11 @@ body.al-body {
 .al-card .pf-v5-c-input-group {
     position: relative;
     border-radius: var(--al-radius-control);
+}
+
+/* PatternFly's dark theme draws a divider between input-group items; the button sits inside the field here. */
+.al-card .pf-v5-c-input-group > .pf-v5-c-input-group__item {
+    border: 0;
 }
 
 .al-card .pf-v5-c-input-group > .pf-v5-c-input-group__item:not(.pf-m-fill) {
@@ -556,11 +581,30 @@ body.al-body {
     padding: 0;
 }
 
+/* Styled directly: Keycloak 26.7 renders these as secondary, 26.8 as tertiary buttons. */
 .al-card #kc-social-providers .pf-v5-c-button {
     justify-content: center;
     gap: 10px;
     min-height: 46px;
     font-weight: 600;
+    color: var(--al-text);
+    background: var(--al-surface);
+    border-radius: var(--al-radius-control);
+}
+
+.al-card #kc-social-providers .pf-v5-c-button::after {
+    border: 1px solid var(--al-border-strong);
+    border-radius: var(--al-radius-control);
+}
+
+.al-card #kc-social-providers .pf-v5-c-button:hover,
+.al-card #kc-social-providers .pf-v5-c-button:focus-visible {
+    background: var(--al-accent-surface);
+}
+
+.al-card #kc-social-providers .pf-v5-c-button:hover::after,
+.al-card #kc-social-providers .pf-v5-c-button:focus-visible::after {
+    border-color: var(--al-accent);
 }
 
 .al-card #kc-social-providers .pf-v5-c-button span {
@@ -576,6 +620,14 @@ body.al-body {
 
 .al-card #kc-social-providers .al-idp-apple {
     color: var(--al-text);
+}
+
+/* Icon classes of other identity providers: same box as the logos. */
+.al-card #kc-social-providers .al-idp-icon {
+    width: 20px;
+    font-size: 18px;
+    line-height: 1;
+    text-align: center;
 }
 
 #kc-info {

@@ -1,4 +1,6 @@
 <#macro show social>
+  <#assign logos = ["google", "github", "facebook", "gitlab", "linkedin", "linkedin-openid-connect", "openshift-v4",
+                    "stackoverflow", "twitter", "microsoft", "apple", "bitbucket", "instagram", "paypal"]>
   <div class="${properties.kcLoginMainFooterBand!}">
       <span class="${properties.kcLoginMainFooterBandItem!} ${properties.kcLoginMainFooterHelperText!}">
           ${msg("identity-provider-login-label")}
@@ -11,10 +13,13 @@
                   <a data-once-link data-disabled-class="${properties.kcFormSocialAccountListButtonDisabledClass!}" id="social-${p.alias}"
                           class="${properties.kcFormSocialAccountListButtonClass!}" aria-label="${p.displayName}"
                           type="button" href="${p.loginUrl}">
-                        <#if p.iconClasses?has_content>
-                            <span class="${p.iconClasses!}">${p.displayName!}</span>
+                        <#-- Our own logos first: identity providers may bring Font Awesome 4 classes
+                             (Sign in with Apple sends "fa fa-apple"), which PatternFly 5 cannot draw. -->
+                        <#assign brand = logos?seq_contains(p.providerId)?then(p.providerId, logos?seq_contains(p.alias)?then(p.alias, ""))>
+                        <#if p.iconClasses?has_content && brand == "">
+                            <i class="${p.iconClasses!} al-idp-icon" aria-hidden="true"></i>
                         <#else>
-                        <#switch p.providerId>
+                        <#switch brand>
                             <#case "google">
                                 <svg viewBox="0 0 48 48" class="google al-idp-logo" aria-hidden="true">
                                     <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
@@ -93,8 +98,8 @@
                                     <path d="M239.1 6.3l-208 78c-18.7 7-31.1 25-31.1 45v225.1c0 18.2 10.3 34.8 26.5 42.9l208 104c13.5 6.8 29.4 6.8 42.9 0l208-104c16.3-8.1 26.5-24.8 26.5-42.9V129.3c0-20-12.4-37.9-31.1-44.9l-208-78C262 2.2 250 2.2 239.1 6.3zM256 68.4l192 72v1.1l-192 78-192-78v-1.1l192-72zm32 356V275.5l160-65v133.9l-160 80z"/>
                                 </svg>
                         </#switch>
-                            <span class="${properties.kcFormSocialAccountNameClass!}">${p.displayName!}</span>
                         </#if>
+                        <span class="${properties.kcFormSocialAccountNameClass!}">${p.displayName!}</span>
                   </a>
               </li>
           </#list>
