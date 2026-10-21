@@ -22,6 +22,7 @@ Examples
   python scripts/setup_login_link_flow.py --server https://id.autologg.com/auth --realm staging-autologg \\
       --admin-user thomas.jetzinger --otp --apply
   python scripts/setup_login_link_flow.py ... --config excludedIdentityProviders=entra-acme --apply
+  python scripts/setup_login_link_flow.py ... --config passwordLogin=false --apply   # link only, no password
   python scripts/setup_login_link_flow.py ... --bind-flow browser --apply      # roll back
 """
 import argparse
@@ -40,7 +41,7 @@ REPLACEMENTS = {
 }
 CONFIG_KEYS = {
     "linkTtlMinutes", "codeLength", "maxCodeAttempts", "resendCooldownSeconds",
-    "maxSendsPerHour", "excludedIdentityProviders", "markEmailVerified",
+    "maxSendsPerHour", "excludedIdentityProviders", "markEmailVerified", "passwordLogin",
 }
 
 
@@ -264,7 +265,7 @@ def main():
     p.add_argument("--otp", action="store_true", help="admin user has 2FA: code is prompted")
     p.add_argument("--new-flow", help="alias of the copy (default: '<current> with login link')")
     p.add_argument("--config", action="append", metavar="KEY=VALUE",
-                   help="execution config, e.g. linkTtlMinutes=15 or excludedIdentityProviders=entra-acme")
+                   help="execution config, e.g. linkTtlMinutes=15, passwordLogin=false or excludedIdentityProviders=entra-acme")
     p.add_argument("--bind-flow", metavar="ALIAS", help="only bind this flow as browser flow (roll back)")
     p.add_argument("--apply", action="store_true", help="make the changes (default: dry run)")
     args = p.parse_args()

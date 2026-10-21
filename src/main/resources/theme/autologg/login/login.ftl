@@ -3,6 +3,8 @@
 <#import "buttons.ftl" as buttons>
 <#import "social-providers.ftl" as identityProviders>
 <#import "passkeys.ftl" as passkeys>
+<#-- Without the password (switched off in the execution config) the page asks for the address only. -->
+<#assign passwordShown = !(loginLink??) || loginLink.passwordAvailable>
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled??; section>
 <!-- template: login.ftl -->
 
@@ -12,19 +14,26 @@
         <div id="kc-form">
           <div id="kc-form-wrapper">
             <#if realm.password>
-                <form id="kc-form-login" class="${properties.kcFormClass!}" onsubmit="login.disabled = true; return true;" action="${url.loginAction}" method="post" novalidate="novalidate">
+                <form id="kc-form-login" class="${properties.kcFormClass!}" onsubmit="if (this.login) { this.login.disabled = true; } return true;" action="${url.loginAction}" method="post" novalidate="novalidate">
+                    <#if !passwordShown>
+                        <p class="al-text al-muted">${msg("loginLinkPasswordOffIntro")}</p>
+                    </#if>
                     <#if !usernameHidden??>
                         <#assign label>
                             <#if !realm.loginWithEmailAllowed>${msg("username")}<#elseif !realm.registrationEmailAsUsername>${msg("usernameOrEmail")}<#else>${msg("email")}</#if>
                         </#assign>
                         <@field.input name="username" label=label error=messagesPerField.getFirstError('username','password')
                             autofocus=true autocomplete="${(enableWebAuthnConditionalUI?has_content)?then('username webauthn', 'username')}" value=login.username!'' />
-                        <@field.password name="password" label=msg("password") error="" forgotPassword=realm.resetPasswordAllowed autofocus=usernameHidden?? autocomplete="current-password">
-                            <#if realm.rememberMe && !usernameHidden??>
-                                <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
-                            </#if>
-                        </@field.password>
-                    <#else>
+                        <#if passwordShown>
+                            <@field.password name="password" label=msg("password") error="" forgotPassword=realm.resetPasswordAllowed autofocus=usernameHidden?? autocomplete="current-password">
+                                <#if realm.rememberMe && !usernameHidden??>
+                                    <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
+                                </#if>
+                            </@field.password>
+                        <#elseif realm.rememberMe>
+                            <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
+                        </#if>
+                    <#elseif passwordShown>
                         <@field.password name="password" label=msg("password") forgotPassword=realm.resetPasswordAllowed autofocus=usernameHidden?? autocomplete="current-password">
                             <#if realm.rememberMe && !usernameHidden??>
                                 <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
@@ -34,9 +43,11 @@
 
                     <input type="hidden" id="id-hidden-input" name="credentialId" <#if auth.selectedCredential?has_content>value="${auth.selectedCredential}"</#if>/>
                     <@buttons.actionGroup>
-                        <@buttons.button id="kc-login" name="login" label="doLogIn" />
+                        <#if passwordShown>
+                            <@buttons.button id="kc-login" name="login" label="doLogIn" />
+                        </#if>
                         <#if loginLink??>
-                            <button class="${properties.kcButtonSecondaryClass!} ${properties.kcButtonBlockClass!} al-link-button" type="submit"
+                            <button class="${passwordShown?then(properties.kcButtonSecondaryClass!, properties.kcButtonPrimaryClass!)} ${properties.kcButtonBlockClass!} al-link-button" type="submit"
                                     id="kc-login-link" name="${loginLink.sendParameter}" value="1" formnovalidate>
                                 <svg class="al-link-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg>
                                 ${msg("loginLinkSend")}

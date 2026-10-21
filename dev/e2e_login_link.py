@@ -180,7 +180,7 @@ def link_key(link):
 COOLDOWN_SECONDS = 3
 
 
-def configure_execution(token, realm):
+def configure_execution(token, realm, extra=None):
     """Short resend cooldown and a high hourly cap, so the scenarios can send one e-mail after another."""
     base = f"{KEYCLOAK}/admin/realms/{realm}"
 
@@ -196,7 +196,7 @@ def configure_execution(token, realm):
     flow = call("GET", "")["browserFlow"]
     executions = call("GET", f"/authentication/flows/{urllib.parse.quote(flow, safe='')}/executions")
     ours = next(e for e in executions if e.get("providerId", "").startswith("autologg-"))
-    config = {"resendCooldownSeconds": str(COOLDOWN_SECONDS), "maxSendsPerHour": "100"}
+    config = {"resendCooldownSeconds": str(COOLDOWN_SECONDS), "maxSendsPerHour": "100", **(extra or {})}
     if ours.get("authenticationConfig"):
         current = call("GET", f"/authentication/config/{ours['authenticationConfig']}")
         current["config"].update(config)
@@ -327,6 +327,39 @@ def scenarios(realm, identifier_first):
     check(desk.code_from_redirects() is not None, "account without password logs in with the code")
 
 
+def password_off(realm, identifier_first):
+    print("\n[8] password login switched off")
+    # Admin tokens of the master realm live 60 s; the scenarios before took longer.
+    configure_execution(admin_token(), realm, {"passwordLogin": "false"})
+    try:
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = start_login(desk, realm)
+        if identifier_first:
+            page = desk.submit(page.forms["kc-form-login"], {"username": USER_WITH_PASSWORD[0]}, "login")
+        form = page.forms["kc-form-login"]
+        check("password" not in form["fields"] and "login" not in form["buttons"], "no password field and no password button")
+        check("loginLink" in form["buttons"], "link button offered")
+        # A hand-made post with the right password must not log in; it sends the link instead.
+        pause_for_cooldown()
+        posted = {"password": USER_WITH_PASSWORD[1]}
+        if not identifier_first:
+            posted["username"] = USER_WITH_PASSWORD[0]
+        page = desk.submit(form, posted)
+        check(desk.code_from_redirects() is None, "correct password is not accepted")
+        check("kc-login-link-code-form" in page.forms, "the post sent the link instead")
+        if identifier_first:
+            check("kc-login-link-cancel-form" not in page.forms, "waiting page offers no way back to a password")
+        else:
+            check("Andere E-Mail-Adresse" in desk.html and "Mit Passwort anmelden" not in desk.html,
+                  "waiting page offers another address instead of the password")
+        _, code, _ = latest_mail(USER_WITH_PASSWORD[0])
+        desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check(desk.code_from_redirects() is not None, "code from the e-mail still logs in")
+    finally:
+        configure_execution(admin_token(), realm, {"passwordLogin": "true"})
+
+
 def setup_identifier_first(token):
     """Realm autologg-dev-idf: copy of autologg-dev with Username Form + Password Form, then the setup script."""
     realm = "autologg-dev-idf"
@@ -403,6 +436,7 @@ def main():
 
     print(f"Realm {realm}")
     scenarios(realm, args.identifier_first)
+    password_off(realm, args.identifier_first)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
 

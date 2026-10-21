@@ -25,6 +25,7 @@ final class LoginLinkConfig {
     static final String MAX_SENDS_PER_HOUR = "maxSendsPerHour";
     static final String EXCLUDED_IDENTITY_PROVIDERS = "excludedIdentityProviders";
     static final String MARK_EMAIL_VERIFIED = "markEmailVerified";
+    static final String PASSWORD_LOGIN = "passwordLogin";
 
     static final int DEFAULT_LINK_TTL_MINUTES = 15;
     static final int DEFAULT_CODE_LENGTH = 6;
@@ -39,6 +40,8 @@ final class LoginLinkConfig {
     final int maxSendsPerHour;
     final Set<String> excludedIdentityProviders;
     final boolean markEmailVerified;
+    /** False: the form asks for the address only and never checks a password. */
+    final boolean passwordLogin;
 
     private LoginLinkConfig(Map<String, String> values) {
         linkTtlMinutes = intValue(values, LINK_TTL_MINUTES, DEFAULT_LINK_TTL_MINUTES, 1, 60);
@@ -47,8 +50,8 @@ final class LoginLinkConfig {
         resendCooldownSeconds = intValue(values, RESEND_COOLDOWN_SECONDS, DEFAULT_RESEND_COOLDOWN_SECONDS, 0, 600);
         maxSendsPerHour = intValue(values, MAX_SENDS_PER_HOUR, DEFAULT_MAX_SENDS_PER_HOUR, 1, 100);
         excludedIdentityProviders = aliases(values.get(EXCLUDED_IDENTITY_PROVIDERS));
-        String verified = values.get(MARK_EMAIL_VERIFIED);
-        markEmailVerified = verified == null || verified.isBlank() || Boolean.parseBoolean(verified.trim());
+        markEmailVerified = flag(values, MARK_EMAIL_VERIFIED);
+        passwordLogin = flag(values, PASSWORD_LOGIN);
     }
 
     static LoginLinkConfig from(AuthenticatorConfigModel model) {
@@ -113,7 +116,20 @@ final class LoginLinkConfig {
                 .type(ProviderConfigProperty.BOOLEAN_TYPE)
                 .defaultValue("true")
                 .add()
+                .property()
+                .name(PASSWORD_LOGIN)
+                .label("Password login")
+                .helpText("Off: the page asks for the e-mail address only and sends the sign-in link; this form accepts no password (passkeys still work). Password grants of the API are a separate flow.")
+                .type(ProviderConfigProperty.BOOLEAN_TYPE)
+                .defaultValue("true")
+                .add()
                 .build();
+    }
+
+    /** Boolean option that is on unless explicitly set to false. */
+    private static boolean flag(Map<String, String> values, String key) {
+        String raw = values.get(key);
+        return raw == null || raw.isBlank() || Boolean.parseBoolean(raw.trim());
     }
 
     private static int intValue(Map<String, String> values, String key, int fallback, int min, int max) {

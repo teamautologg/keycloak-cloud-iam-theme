@@ -63,15 +63,17 @@
                                 data-label="${msg("loginLinkResend")}"
                                 data-label-wait="${msg("loginLinkResendIn")}">${msg("loginLinkResend")}</button>
                     </form>
+                    <#if loginLinkSent.back != "none">
                     <form id="kc-login-link-cancel-form" action="${url.loginAction}" method="post">
                         <input type="hidden" name="${loginLinkSent.cancelParameter}" value="1"/>
                         <#if loginLinkSent.identifier?has_content>
                             <input type="hidden" name="username" value="${loginLinkSent.identifier}"/>
                         </#if>
                         <button type="submit" class="${properties.kcButtonLinkClass!} al-inline-button">
-                            ${loginLinkSent.passwordFallback?then(msg("loginLinkUsePassword"), msg("loginLinkBack"))}
+                            ${(loginLinkSent.back == "password")?then(msg("loginLinkUsePassword"), msg("loginLinkOtherAddress"))}
                         </button>
                     </form>
+                    </#if>
                 </div>
             </div>
         </div>

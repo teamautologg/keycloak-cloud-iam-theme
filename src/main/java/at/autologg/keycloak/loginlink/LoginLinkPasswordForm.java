@@ -14,11 +14,13 @@ import org.keycloak.services.validation.Validation;
 
 /**
  * Keycloak's "Password Form" (second step after "Username Form") plus "send me
- * a login link". Users without a password get the link option only, so the step
+ * a login link". Users without a password - and everybody when password login is
+ * switched off in the execution config - get the e-mail option only, so the step
  * also works for accounts that never set one.
  */
 public class LoginLinkPasswordForm extends PasswordForm {
 
+    private boolean passwordLogin = true;
     private boolean passwordAvailable = true;
 
     public LoginLinkPasswordForm(KeycloakSession session) {
@@ -27,7 +29,7 @@ public class LoginLinkPasswordForm extends PasswordForm {
 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
-        passwordAvailable = hasPassword(context.getUser());
+        readSettings(context);
         LoginLinkFlow links = links(context);
         if (links.isWaiting()) {
             links.showWaitingPage();
@@ -45,15 +47,19 @@ public class LoginLinkPasswordForm extends PasswordForm {
 
     @Override
     public void action(AuthenticationFlowContext context) {
-        passwordAvailable = hasPassword(context.getUser());
+        readSettings(context);
         MultivaluedMap<String, String> form = context.getHttpRequest().getDecodedFormParameters();
         LoginLinkFlow links = links(context);
         if (form.containsKey(LoginLink.FORM_SEND)) {
-            String attempted = context.getAuthenticationSession().getAuthNote(ATTEMPTED_USERNAME);
-            links.send(context.getUser(), attempted != null ? attempted : context.getUser().getEmail());
+            sendLink(context, links);
             return;
         }
         if (links.handleWaitingAction(form, () -> authenticate(context))) {
+            return;
+        }
+        if (!passwordAvailable && !form.containsKey("cancel") && !LoginLinkFlow.isPasskeySubmission(form)) {
+            // The page offers nothing but the link, so whatever was posted sends it; no password is checked.
+            sendLink(context, links);
             return;
         }
         if (links.isWaiting()) {
@@ -70,12 +76,24 @@ public class LoginLinkPasswordForm extends PasswordForm {
 
     @Override
     protected Response createLoginForm(LoginFormsProvider form) {
-        LoginLinkFlow.offer(form, passwordAvailable);
+        LoginLinkFlow.offer(form, passwordAvailable, passwordLogin);
         return super.createLoginForm(form);
     }
 
+    private void sendLink(AuthenticationFlowContext context, LoginLinkFlow links) {
+        String attempted = context.getAuthenticationSession().getAuthNote(ATTEMPTED_USERNAME);
+        links.send(context.getUser(), attempted != null ? attempted : context.getUser().getEmail());
+    }
+
+    private void readSettings(AuthenticationFlowContext context) {
+        passwordLogin = LoginLinkConfig.from(context.getAuthenticatorConfig()).passwordLogin;
+        passwordAvailable = passwordLogin && hasPassword(context.getUser());
+    }
+
     private LoginLinkFlow links(AuthenticationFlowContext context) {
-        return new LoginLinkFlow(this, context, passwordAvailable,
+        // Without a password field the waiting page offers no way back; the username box on top restarts the login.
+        String back = passwordAvailable ? LoginLinkSentBean.BACK_PASSWORD : LoginLinkSentBean.BACK_NONE;
+        return new LoginLinkFlow(this, context, back,
                 error -> challenge(context, error, Validation.FIELD_PASSWORD));
     }
 

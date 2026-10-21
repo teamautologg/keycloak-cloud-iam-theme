@@ -15,9 +15,12 @@ import org.keycloak.services.validation.Validation;
 /**
  * Keycloak's "Username Password Form" plus "send me a login link": the address
  * typed into the username field gets an e-mail with link and code instead of
- * the password being checked.
+ * the password being checked. With password login switched off in the execution
+ * config the page asks for the address only and every post sends the link.
  */
 public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
+
+    private boolean passwordLogin = true;
 
     public LoginLinkUsernamePasswordForm(KeycloakSession session) {
         super(session);
@@ -25,6 +28,7 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
+        passwordLogin = LoginLinkConfig.from(context.getAuthenticatorConfig()).passwordLogin;
         LoginLinkFlow links = links(context);
         if (links.isWaiting()) {
             links.showWaitingPage();
@@ -35,6 +39,7 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
 
     @Override
     public void action(AuthenticationFlowContext context) {
+        passwordLogin = LoginLinkConfig.from(context.getAuthenticatorConfig()).passwordLogin;
         MultivaluedMap<String, String> form = context.getHttpRequest().getDecodedFormParameters();
         LoginLinkFlow links = links(context);
         if (form.containsKey(LoginLink.FORM_SEND)) {
@@ -42,6 +47,11 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
             return;
         }
         if (links.handleWaitingAction(form, () -> super.authenticate(context))) {
+            return;
+        }
+        if (!passwordLogin && !form.containsKey("cancel") && !LoginLinkFlow.isPasskeySubmission(form)) {
+            // Password login is off: whatever was posted, this form only sends the link.
+            sendLink(context, links, form);
             return;
         }
         if (links.isWaiting()) {
@@ -67,19 +77,27 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
     }
 
     private LoginLinkFlow links(AuthenticationFlowContext context) {
-        return new LoginLinkFlow(this, context, true,
+        String back;
+        if (passwordLogin) {
+            back = LoginLinkSentBean.BACK_PASSWORD;
+        } else if (isUserAlreadySetBeforeUsernamePasswordAuth(context)) {
+            back = LoginLinkSentBean.BACK_NONE;
+        } else {
+            back = LoginLinkSentBean.BACK_ADDRESS;
+        }
+        return new LoginLinkFlow(this, context, back,
                 error -> challenge(context, error, Validation.FIELD_USERNAME));
     }
 
     @Override
     protected Response challenge(AuthenticationFlowContext context, MultivaluedMap<String, String> formData) {
-        LoginLinkFlow.offer(context.form(), true);
+        LoginLinkFlow.offer(context.form(), passwordLogin, passwordLogin);
         return super.challenge(context, formData);
     }
 
     @Override
     protected Response createLoginForm(LoginFormsProvider form) {
-        LoginLinkFlow.offer(form, true);
+        LoginLinkFlow.offer(form, passwordLogin, passwordLogin);
         return super.createLoginForm(form);
     }
 }

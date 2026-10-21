@@ -23,6 +23,13 @@ class LoginLinkConfigTest {
         assertEquals(10, config.maxSendsPerHour);
         assertTrue(config.excludedIdentityProviders.isEmpty());
         assertTrue(config.markEmailVerified);
+        assertTrue(config.passwordLogin);
+    }
+
+    @Test
+    void passwordLoginCanBeSwitchedOff() {
+        assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_LOGIN, "false"))).passwordLogin);
+        assertTrue(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_LOGIN, ""))).passwordLogin);
     }
 
     @Test
@@ -49,7 +56,7 @@ class LoginLinkConfigTest {
 
     @Test
     void exposesAllPropertiesInTheAdminConsole() {
-        assertEquals(7, LoginLinkConfig.properties().size());
+        assertEquals(8, LoginLinkConfig.properties().size());
     }
 
     private static AuthenticatorConfigModel model(Map<String, String> values) {

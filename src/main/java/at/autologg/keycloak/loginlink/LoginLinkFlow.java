@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
 
 import org.jboss.logging.Logger;
+import org.keycloak.WebAuthnConstants;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.authenticators.browser.AbstractUsernameFormAuthenticator;
@@ -53,21 +54,34 @@ final class LoginLinkFlow {
     private final AbstractUsernameFormAuthenticator authenticator;
     private final AuthenticationFlowContext context;
     private final LoginLinkConfig config;
-    private final boolean passwordFallback;
+    private final String back;
     private final LoginPage loginPage;
 
+    /**
+     * @param back way back the waiting page offers, one of the {@code LoginLinkSentBean.BACK_*} values
+     */
     LoginLinkFlow(AbstractUsernameFormAuthenticator authenticator, AuthenticationFlowContext context,
-                  boolean passwordFallback, LoginPage loginPage) {
+                  String back, LoginPage loginPage) {
         this.authenticator = authenticator;
         this.context = context;
         this.config = LoginLinkConfig.from(context.getAuthenticatorConfig());
-        this.passwordFallback = passwordFallback;
+        this.back = back;
         this.loginPage = loginPage;
     }
 
-    /** Adds the "send me a link" option to a login page about to be rendered. */
-    static void offer(LoginFormsProvider form, boolean passwordAvailable) {
-        form.setAttribute(LoginLink.ATTR_LOGIN_FORM, new LoginLinkFormBean(passwordAvailable));
+    /**
+     * Adds the "send me a link" option to a login page about to be rendered.
+     *
+     * @param passwordAvailable whether the page shows the password field
+     * @param passwordLogin     false when password login is switched off by the execution config
+     */
+    static void offer(LoginFormsProvider form, boolean passwordAvailable, boolean passwordLogin) {
+        form.setAttribute(LoginLink.ATTR_LOGIN_FORM, new LoginLinkFormBean(passwordAvailable, passwordLogin));
+    }
+
+    /** Passkey (WebAuthn conditional UI) posts are still Keycloak's to handle. */
+    static boolean isPasskeySubmission(MultivaluedMap<String, String> form) {
+        return form.containsKey(WebAuthnConstants.AUTHENTICATOR_DATA) || form.containsKey(WebAuthnConstants.ERROR);
     }
 
     boolean isWaiting() {
@@ -330,7 +344,7 @@ final class LoginLinkFlow {
 
         LoginFormsProvider form = context.form();
         form.setAttribute(LoginLink.ATTR_SENT,
-                new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, passwordFallback));
+                new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, back));
         if (fieldError != null) {
             form.addError(fieldError);
         } else if (error != null) {

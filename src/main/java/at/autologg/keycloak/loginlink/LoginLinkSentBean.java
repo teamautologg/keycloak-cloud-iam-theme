@@ -3,21 +3,26 @@ package at.autologg.keycloak.loginlink;
 /** Template attribute {@code loginLinkSent} of the waiting page (login-link-sent.ftl). */
 public class LoginLinkSentBean {
 
+    /** Way back offered on the waiting page: to the password, to another address, or none. */
+    public static final String BACK_PASSWORD = "password";
+    public static final String BACK_ADDRESS = "address";
+    public static final String BACK_NONE = "none";
+
     private final String identifier;
     private final String statusUrl;
     private final int codeLength;
     private final long expiresInSeconds;
     private final long resendAvailableInSeconds;
-    private final boolean passwordFallback;
+    private final String back;
 
     LoginLinkSentBean(String identifier, String statusUrl, int codeLength, long expiresInSeconds,
-                      long resendAvailableInSeconds, boolean passwordFallback) {
+                      long resendAvailableInSeconds, String back) {
         this.identifier = identifier;
         this.statusUrl = statusUrl;
         this.codeLength = codeLength;
         this.expiresInSeconds = expiresInSeconds;
         this.resendAvailableInSeconds = resendAvailableInSeconds;
-        this.passwordFallback = passwordFallback;
+        this.back = back;
     }
 
     /** The address as the user typed it; empty when they signed in with a username. */
@@ -42,9 +47,9 @@ public class LoginLinkSentBean {
         return resendAvailableInSeconds;
     }
 
-    /** Whether the page offers to go back to the password. */
-    public boolean isPasswordFallback() {
-        return passwordFallback;
+    /** {@link #BACK_PASSWORD}, {@link #BACK_ADDRESS} or {@link #BACK_NONE}. */
+    public String getBack() {
+        return back;
     }
 
     public String getCodeParameter() {

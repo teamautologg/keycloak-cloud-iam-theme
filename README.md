@@ -41,6 +41,11 @@ the confirm page shows when and from which browser the login was requested.
 Both forms keep everything of Keycloak's forms (password, remember me, passkeys, brute force
 protection). Users without a password get the e-mail option only on the password step.
 
+Password login can be switched off per execution (`passwordLogin=false`): the login page then asks
+for the address only, the link button becomes the main button, and posted passwords are ignored -
+every post sends the link. This covers the browser login only; the API's password grant (direct
+grant flow) and the registration form are separate.
+
 ### Limits and safety
 
 - Link: 256 random bits, stored hashed in Keycloak's single-use store, works once and only for the
@@ -68,6 +73,7 @@ Optional, on the execution (Authentication -> flow -> gear icon). Without a conf
 | `maxSendsPerHour` | 10 | e-mails per address and hour |
 | `excludedIdentityProviders` | - | IdP aliases whose users keep signing in through the IdP (e.g. company Entra ID tenants) |
 | `markEmailVerified` | true | mark the address verified after a login through the e-mail |
+| `passwordLogin` | true | `false`: the pages ask for the address only and send the link; the form accepts no password (passkeys still work) |
 
 ### Rollout per realm
 
