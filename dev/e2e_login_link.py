@@ -327,6 +327,44 @@ def scenarios(realm, identifier_first):
     check(desk.code_from_redirects() is not None, "account without password logs in with the code")
 
 
+def admin_call(realm, method, path, body=None):
+    req = urllib.request.Request(f"{KEYCLOAK}/admin/realms/{realm}{path}", method=method,
+                                 data=None if body is None else json.dumps(body).encode())
+    req.add_header("Authorization", f"Bearer {admin_token()}")
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = resp.read()
+        return json.loads(raw) if raw else None
+
+
+def update_password_dropped(realm, identifier_first):
+    print("\n[9] pending password update")
+    address, password = USER_WITH_PASSWORD
+    user = admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true")[0]
+    admin_call(realm, "PUT", f"/users/{user['id']}", {"requiredActions": ["UPDATE_PASSWORD"]})
+    try:
+        desk = Browser("desk", DESKTOP_UA)
+        page = start_login(desk, realm)
+        if identifier_first:
+            page = desk.submit(page.forms["kc-form-login"], {"username": address}, "login")
+            desk.submit(page.forms["kc-form-login"], {"password": password}, "login")
+        else:
+            desk.submit(page.forms["kc-form-login"], {"username": address, "password": password}, "login")
+        check(desk.code_from_redirects() is None and "password-new" in desk.html,
+              "password login still asks for a new password")
+
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, identifier_first)
+        _, code, _ = latest_mail(address)
+        desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check(desk.code_from_redirects() is not None, "link login goes straight through")
+        actions = admin_call(realm, "GET", f"/users/{user['id']}")["requiredActions"]
+        check("UPDATE_PASSWORD" not in actions, "UPDATE_PASSWORD is gone from the account")
+    finally:
+        admin_call(realm, "PUT", f"/users/{user['id']}", {"requiredActions": []})
+
+
 def password_off(realm, identifier_first):
     print("\n[8] password login switched off")
     # Admin tokens of the master realm live 60 s; the scenarios before took longer.
@@ -437,6 +475,7 @@ def main():
     print(f"Realm {realm}")
     scenarios(realm, args.identifier_first)
     password_off(realm, args.identifier_first)
+    update_password_dropped(realm, args.identifier_first)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
 

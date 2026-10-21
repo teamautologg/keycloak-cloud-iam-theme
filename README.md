@@ -57,7 +57,8 @@ grant flow) and the registration form are separate.
   providers get no e-mail. The page looks the same, so it does not tell which addresses have an
   account (sending makes the response slower, as with Keycloak's password reset).
 - A login through the e-mail proves the address: it is marked verified and a pending
-  *Verify Email* action is dropped.
+  *Verify Email* action is dropped. A pending *Update Password* action is dropped as well - the
+  login needed no password; a password login still asks for the new one.
 - The LOGIN event carries `login_link=link` or `login_link=code`.
 
 ### Configuration

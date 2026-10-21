@@ -306,6 +306,9 @@ final class LoginLinkFlow {
             user.setEmailVerified(true);
             user.removeRequiredAction(UserModel.RequiredAction.VERIFY_EMAIL);
         }
+        // Signing in through the e-mail needs no password; a pending "set your password" (e.g. from the
+        // webshop's action mail) would only stand in the way. A password login still asks for it.
+        user.removeRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD);
         context.getEvent().detail(LoginLink.EVENT_DETAIL, method);
         context.setUser(user);
         context.success();
