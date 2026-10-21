@@ -1,11 +1,17 @@
 version: "3.9"
 
+# Local Keycloak for theme and login-link development.
+#   Keycloak  http://localhost:8080  (admin/password)
+#   Mailpit   http://localhost:8025  (catches every e-mail Keycloak sends)
+# Templates and messages are mounted, so changes show up on reload.
+# Java changes: run ./dev/build-provider.sh, then `docker compose restart keycloak`.
+
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:26.6
+    image: quay.io/keycloak/keycloak:26.7.5
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: password
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: password
       KC_DB: postgres
       KC_DB_USERNAME: admin
       KC_DB_PASSWORD: password
@@ -13,18 +19,22 @@ services:
       KC_DB_URL_PORT: 5432
       KC_DB_URL_DATABASE: keycloak
       KC_LOG_FORMAT: "%d{yyyy-MM-dd HH:mm:ss,SSS} %-5p [%c] (%t) %s%e%n"
-      KC_LOG_LEVEL: "INFO"
+      KC_LOG_LEVEL: "INFO,at.autologg:debug"
     command:
       - "start-dev"
-      - "--spi-theme-static-max-age=-1"
-      - "--spi-theme-cache-themes=false"
-      - "--spi-theme-cache-templates=false"
+      - "--import-realm"
+      - "--spi-theme--static-max-age=-1"
+      - "--spi-theme--cache-themes=false"
+      - "--spi-theme--cache-templates=false"
     ports:
       - "8080:8080"
     volumes:
       - ./src/main/resources/theme:/opt/keycloak/themes/:z
+      - ./target/dev-providers:/opt/keycloak/providers/:z
+      - ./dev/realm:/opt/keycloak/data/import/:z
     depends_on:
       - keycloak-db
+      - mailpit
     networks:
       - keycloak-internal
   keycloak-db:
@@ -39,6 +49,12 @@ services:
       POSTGRES_DB: keycloak
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+    networks:
+      - keycloak-internal
 
 volumes:
   x_postgres_data:

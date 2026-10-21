@@ -1,0 +1,847 @@
+/*
+ * AutoLogg look for the keycloak.v2 (PatternFly 5) login pages.
+ * Colours, type and radii follow the app (AppColours, Plus Jakarta Sans):
+ * accent #0E9BF5, page #EEF2F9, cards with radius 18 and a soft shadow,
+ * controls with radius 12. Dark mode uses the app's dark palette.
+ */
+
+@font-face {
+    font-family: "Plus Jakarta Sans";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 200 800;
+    src: url("../fonts/plus-jakarta-sans-latin-ext-wght-normal.woff2") format("woff2");
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+    font-family: "Plus Jakarta Sans";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 200 800;
+    src: url("../fonts/plus-jakarta-sans-latin-wght-normal.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+    --al-font: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    --al-accent: #0E9BF5;
+    --al-accent-hover: #0D7ABC;
+    --al-accent-text: #1668B8;
+    --al-accent-surface: #EAF6FE;
+    --al-accent-border: #CDE8FB;
+    --al-on-accent: #FFFFFF;
+
+    --al-page-bg: #EEF2F9;
+    --al-surface: #FFFFFF;
+    --al-input-bg: #F4F6FB;
+    --al-neutral-chip: #F1F5F9;
+    --al-border: #E8EDF4;
+    --al-border-strong: #CBD5E1;
+
+    --al-text: #0F172A;
+    --al-text-body: #1F2937;
+    --al-text-secondary: #64748B;
+    --al-text-muted: #94A3B8;
+
+    --al-danger: #E11D48;
+    --al-danger-surface: #FFEDEF;
+    --al-danger-border: #FBCFD6;
+    --al-success: #17914F;
+    --al-success-surface: #E5F7EC;
+    --al-warning: #B7791F;
+    --al-warning-surface: #FDF6EA;
+
+    --al-card-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    --al-radius-card: 18px;
+    --al-radius-control: 12px;
+    --al-control-height: 48px;
+
+    /* PatternFly 5 tokens used by the keycloak.v2 markup */
+    --pf-v5-global--FontFamily--text: var(--al-font);
+    --pf-v5-global--FontFamily--heading: var(--al-font);
+    --pf-v5-global--FontFamily--redhat-updated--text: var(--al-font);
+    --pf-v5-global--FontFamily--redhat-updated--heading: var(--al-font);
+    --pf-v5-global--FontFamily--redhatVF--text: var(--al-font);
+    --pf-v5-global--FontFamily--redhatVF--heading: var(--al-font);
+    --pf-v5-global--primary-color--100: var(--al-accent);
+    --pf-v5-global--primary-color--200: var(--al-accent-hover);
+    --pf-v5-global--link--Color: var(--al-accent-text);
+    --pf-v5-global--link--Color--hover: var(--al-accent-hover);
+    --pf-v5-global--link--Color--visited: var(--al-accent-text);
+    --pf-v5-global--Color--100: var(--al-text-body);
+    --pf-v5-global--Color--200: var(--al-text-secondary);
+    --pf-v5-global--BackgroundColor--100: var(--al-surface);
+    --pf-v5-global--danger-color--100: var(--al-danger);
+    --pf-v5-global--active-color--100: var(--al-accent);
+    --keycloak-card-top-color: transparent;
+}
+
+/* Dark mode: keycloak.v2 puts pf-v5-theme-dark on <html> when the system asks for it. */
+:root.pf-v5-theme-dark {
+    --al-accent-text: #8ECFF7;
+    --al-accent-surface: rgba(14, 155, 245, 0.16);
+    --al-accent-border: #1E3A4C;
+
+    --al-page-bg: #000000;
+    --al-surface: #1C1C1E;
+    --al-input-bg: #2C2C2E;
+    --al-neutral-chip: #2C2C2E;
+    --al-border: #38383A;
+    --al-border-strong: #48484A;
+
+    --al-text: #F5F5F7;
+    --al-text-body: #E2E2E7;
+    --al-text-secondary: #98989F;
+    --al-text-muted: #7C7C85;
+
+    --al-danger: #FF6B81;
+    --al-danger-surface: rgba(241, 58, 80, 0.14);
+    --al-danger-border: rgba(241, 58, 80, 0.4);
+    --al-success: #4ADE80;
+    --al-success-surface: rgba(34, 180, 102, 0.16);
+    --al-warning: #F5A623;
+    --al-warning-surface: rgba(245, 166, 35, 0.12);
+
+    --al-card-shadow: none;
+}
+
+/* ---------- Page layout ---------- */
+
+html.al-html,
+.login-pf body.al-body {
+    min-height: 100%;
+    background: var(--al-page-bg);
+}
+
+body.al-body {
+    margin: 0;
+    color: var(--al-text-body);
+    font-family: var(--al-font);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.al-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+.al-pane {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 20px 16px 24px;
+}
+
+.al-topbar,
+.al-card,
+.al-legal {
+    width: 100%;
+    max-width: 440px;
+}
+
+.al-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.al-brand {
+    display: inline-flex;
+    border-radius: 6px;
+}
+
+.al-brand img {
+    display: block;
+    width: 112px;
+    height: auto;
+}
+
+.al-visual {
+    display: none;
+}
+
+@media (min-width: 640px) {
+    .al-pane {
+        justify-content: center;
+        padding: 40px 32px 28px;
+        gap: 24px;
+    }
+
+    .al-brand img {
+        width: 128px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .al-shell {
+        grid-template-columns: minmax(520px, 1fr) minmax(0, 1fr);
+    }
+
+    .al-visual {
+        display: flex;
+        align-items: flex-end;
+        margin: 24px 24px 24px 0;
+        border-radius: 24px;
+        background: #04293F url("../img/login-visual.jpg") center 70% / cover no-repeat;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .al-visual::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(4, 41, 63, 0) 45%, rgba(4, 41, 63, 0.78) 100%);
+    }
+
+    .al-visual-caption {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 40px;
+        color: #FFFFFF;
+    }
+
+    .al-visual-caption strong {
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 1.2;
+        letter-spacing: -0.01em;
+    }
+
+    .al-visual-caption span {
+        font-size: 16px;
+        color: rgba(255, 255, 255, 0.85);
+    }
+}
+
+/* ---------- Card ---------- */
+
+.al-card.pf-v5-c-login__main {
+    align-self: center;
+    margin: 0;
+    padding: 28px 20px 24px;
+    background: var(--al-surface);
+    border: 1px solid var(--al-border);
+    border-radius: var(--al-radius-card);
+    box-shadow: var(--al-card-shadow);
+    grid-area: auto;
+}
+
+@media (min-width: 480px) {
+    .al-card.pf-v5-c-login__main {
+        padding: 36px 32px 32px;
+    }
+}
+
+.al-card .pf-v5-c-login__main-header {
+    display: block;
+    padding: 0;
+    margin: 0 0 24px;
+    border: 0;
+}
+
+.al-card .pf-v5-c-login__main-body,
+.al-card .pf-v5-c-login__main-footer {
+    padding: 0;
+}
+
+.al-card .pf-v5-c-login__main-footer:empty {
+    display: none;
+}
+
+#kc-page-title {
+    margin: 0;
+    color: var(--al-text);
+    font-family: var(--al-font);
+    font-size: 24px;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+}
+
+.al-card .pf-v5-c-form {
+    gap: 18px;
+}
+
+/* ---------- Text ---------- */
+
+.al-text {
+    margin: 0 0 12px;
+    color: var(--al-text-body);
+}
+
+.al-muted {
+    color: var(--al-text-secondary);
+    font-size: 14px;
+}
+
+.al-nowrap {
+    overflow-wrap: anywhere;
+}
+
+.al-card a {
+    color: var(--al-accent-text);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.al-card a:hover,
+.al-card a:focus-visible {
+    color: var(--al-accent-hover);
+    text-decoration: underline;
+}
+
+/* ---------- Form controls ---------- */
+
+.al-card .pf-v5-c-form__label-text {
+    color: var(--al-text-body);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.al-card .pf-v5-c-form__group-label {
+    padding-bottom: 6px;
+}
+
+.al-card .pf-v5-c-form-control,
+.al-locale.pf-v5-c-form-control {
+    --pf-v5-c-form-control--BackgroundColor: var(--al-input-bg);
+    --pf-v5-c-form-control--before--BorderColor: var(--al-border);
+    --pf-v5-c-form-control--before--BorderStyle: solid;
+    --pf-v5-c-form-control--after--BorderColor: transparent;
+    --pf-v5-c-form-control--hover--after--BorderColor: var(--al-border-strong);
+    --pf-v5-c-form-control--focus--after--BorderColor: var(--al-accent);
+    --pf-v5-c-form-control--focus--after--BorderBottomWidth: 0;
+    --pf-v5-c-form-control--Color: var(--al-text);
+    --pf-v5-c-form-control--FontSize: 16px;
+    border-radius: var(--al-radius-control);
+    min-height: var(--al-control-height);
+}
+
+.al-card .pf-v5-c-form-control::before,
+.al-card .pf-v5-c-form-control::after,
+.al-locale.pf-v5-c-form-control::before,
+.al-locale.pf-v5-c-form-control::after {
+    border-radius: var(--al-radius-control);
+}
+
+.al-card .pf-v5-c-form-control::after,
+.al-locale.pf-v5-c-form-control::after {
+    border: 2px solid var(--pf-v5-c-form-control--after--BorderColor);
+}
+
+.al-card .pf-v5-c-form-control:hover {
+    --pf-v5-c-form-control--after--BorderColor: var(--al-border-strong);
+}
+
+.al-card .pf-v5-c-form-control:focus-within {
+    --pf-v5-c-form-control--after--BorderColor: var(--al-accent);
+    --pf-v5-c-form-control--BackgroundColor: var(--al-surface);
+}
+
+.al-card .pf-v5-c-form-control.pf-m-error {
+    --pf-v5-c-form-control--before--BorderColor: var(--al-danger);
+    --pf-v5-c-form-control--after--BorderColor: var(--al-danger);
+}
+
+.al-card .pf-v5-c-form-control > input,
+.al-card .pf-v5-c-form-control > select {
+    min-height: var(--al-control-height);
+    padding-left: 14px;
+    padding-right: 14px;
+    font-family: var(--al-font);
+}
+
+/* The 2px accent border of the field shows the focus; no second ring from the browser. */
+.al-card .pf-v5-c-form-control > input:focus,
+.al-card .pf-v5-c-form-control > select:focus {
+    outline: none;
+}
+
+.al-card .pf-v5-c-form-control.pf-m-readonly {
+    --pf-v5-c-form-control--BackgroundColor: var(--al-neutral-chip);
+}
+
+/* Password field with the eye button: one shape, button inside the field */
+.al-card .pf-v5-c-input-group {
+    position: relative;
+    border-radius: var(--al-radius-control);
+}
+
+.al-card .pf-v5-c-input-group > .pf-v5-c-input-group__item:not(.pf-m-fill) {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+}
+
+.al-card .pf-v5-c-input-group > .pf-v5-c-input-group__item.pf-m-fill .pf-v5-c-form-control > input {
+    padding-right: 52px;
+}
+
+.al-card .pf-v5-c-input-group .pf-v5-c-button.pf-m-control {
+    height: 100%;
+    min-width: 48px;
+    color: var(--al-text-secondary);
+    background: transparent;
+    border-radius: 0 var(--al-radius-control) var(--al-radius-control) 0;
+}
+
+.al-card .pf-v5-c-input-group .pf-v5-c-button.pf-m-control::after {
+    border: 0;
+}
+
+.al-card .pf-v5-c-input-group .pf-v5-c-button.pf-m-control:hover,
+.al-card .pf-v5-c-input-group .pf-v5-c-button.pf-m-control:focus-visible {
+    color: var(--al-text);
+}
+
+.al-card .pf-v5-c-helper-text {
+    margin-top: 6px;
+    gap: 8px 16px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.al-card .pf-v5-c-helper-text__item.pf-m-error,
+.al-card .pf-v5-c-helper-text__item-text.pf-m-error {
+    color: var(--al-danger);
+}
+
+.al-card .pf-v5-c-check {
+    align-items: center;
+}
+
+.al-card .pf-v5-c-check__input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--al-accent);
+}
+
+.al-card .pf-v5-c-check__label {
+    color: var(--al-text-body);
+    font-size: 14px;
+}
+
+/* ---------- Buttons ---------- */
+
+.al-card .pf-v5-c-button {
+    font-family: var(--al-font);
+    border-radius: var(--al-radius-control);
+}
+
+.al-card .pf-v5-c-button.pf-m-primary,
+.al-card .pf-v5-c-button.pf-m-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--al-control-height);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.005em;
+}
+
+.al-card .pf-v5-c-button.pf-m-block {
+    display: flex;
+    width: 100%;
+}
+
+.al-card .pf-v5-c-button.pf-m-primary {
+    --pf-v5-c-button--m-primary--BackgroundColor: var(--al-accent);
+    --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--al-accent-hover);
+    --pf-v5-c-button--m-primary--focus--BackgroundColor: var(--al-accent-hover);
+    --pf-v5-c-button--m-primary--active--BackgroundColor: var(--al-accent-hover);
+    --pf-v5-c-button--m-primary--Color: var(--al-on-accent);
+    --pf-v5-c-button--m-primary--hover--Color: var(--al-on-accent);
+    --pf-v5-c-button--m-primary--focus--Color: var(--al-on-accent);
+    --pf-v5-c-button--m-primary--active--Color: var(--al-on-accent);
+}
+
+.al-card .pf-v5-c-button.pf-m-secondary {
+    --pf-v5-c-button--m-secondary--BackgroundColor: var(--al-surface);
+    --pf-v5-c-button--m-secondary--hover--BackgroundColor: var(--al-accent-surface);
+    --pf-v5-c-button--m-secondary--focus--BackgroundColor: var(--al-accent-surface);
+    --pf-v5-c-button--m-secondary--active--BackgroundColor: var(--al-accent-surface);
+    --pf-v5-c-button--m-secondary--Color: var(--al-text);
+    --pf-v5-c-button--m-secondary--hover--Color: var(--al-text);
+    --pf-v5-c-button--m-secondary--focus--Color: var(--al-text);
+    --pf-v5-c-button--m-secondary--active--Color: var(--al-text);
+}
+
+.al-card .pf-v5-c-button.pf-m-secondary::after {
+    border: 1px solid var(--al-border-strong);
+    border-radius: var(--al-radius-control);
+}
+
+.al-card .pf-v5-c-button.pf-m-secondary:hover::after,
+.al-card .pf-v5-c-button.pf-m-secondary:focus-visible::after {
+    border-color: var(--al-accent);
+}
+
+.al-card .pf-v5-c-button:focus-visible {
+    outline: 3px solid var(--al-accent-border);
+    outline-offset: 2px;
+}
+
+.al-card .pf-v5-c-form__actions {
+    flex-direction: column;
+    gap: 12px;
+    margin: 6px 0 0;
+}
+
+.al-card .pf-v5-c-form__actions > * {
+    width: 100%;
+    margin: 0;
+}
+
+.al-card .pf-v5-c-button.al-link-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.al-link-button-icon {
+    width: 20px;
+    height: 20px;
+    flex: none;
+}
+
+.al-card .pf-v5-c-button.pf-m-link.al-inline-button {
+    padding: 4px 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--al-accent-text);
+}
+
+.al-card .pf-v5-c-button.pf-m-link.al-inline-button:disabled {
+    color: var(--al-text-muted);
+}
+
+/* ---------- Alerts ---------- */
+
+.al-card .pf-v5-c-alert {
+    --pf-v5-c-alert--BackgroundColor: var(--al-accent-surface);
+    --pf-v5-c-alert--BoxShadow: none;
+    --pf-v5-c-alert--BorderTopWidth: 0;
+    margin-bottom: 18px;
+    padding: 12px 14px;
+    border: 1px solid var(--al-accent-border);
+    border-radius: var(--al-radius-control);
+    font-size: 14px;
+}
+
+.al-card .pf-v5-c-alert.pf-m-danger {
+    --pf-v5-c-alert--BackgroundColor: var(--al-danger-surface);
+    border-color: var(--al-danger-border);
+}
+
+.al-card .pf-v5-c-alert.pf-m-success {
+    --pf-v5-c-alert--BackgroundColor: var(--al-success-surface);
+    border-color: transparent;
+}
+
+.al-card .pf-v5-c-alert.pf-m-warning {
+    --pf-v5-c-alert--BackgroundColor: var(--al-warning-surface);
+    border-color: transparent;
+}
+
+.al-card .pf-v5-c-alert__title {
+    color: var(--al-text-body);
+    font-weight: 600;
+}
+
+/* ---------- Social providers, registration ---------- */
+
+.al-card .pf-v5-c-login__main-footer-band {
+    margin-top: 24px;
+    padding: 0;
+    border: 0;
+    text-align: center;
+}
+
+/* "Or sign in with" above the identity providers */
+.al-card .pf-v5-c-login__main-footer-band:has(+ #kc-social-providers) {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--al-text-secondary);
+    font-size: 13px;
+}
+
+.al-card .pf-v5-c-login__main-footer-band:has(+ #kc-social-providers)::before,
+.al-card .pf-v5-c-login__main-footer-band:has(+ #kc-social-providers)::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--al-border);
+}
+
+.al-card #kc-social-providers .pf-v5-c-login__main-body {
+    padding: 12px 0 0;
+}
+
+.al-card #kc-social-providers ul {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.al-card #kc-social-providers li {
+    padding: 0;
+}
+
+.al-card #kc-social-providers .pf-v5-c-button {
+    justify-content: center;
+    gap: 10px;
+    min-height: 46px;
+    font-weight: 600;
+}
+
+.al-card #kc-social-providers .pf-v5-c-button span {
+    margin: 0;
+}
+
+.al-card #kc-social-providers svg,
+.al-card #kc-social-providers svg:not(.google) {
+    width: 20px;
+    height: 20px;
+    filter: none;
+}
+
+.al-card #kc-social-providers .al-idp-apple {
+    color: var(--al-text);
+}
+
+#kc-info {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--al-border);
+    color: var(--al-text-secondary);
+    font-size: 14px;
+    text-align: center;
+}
+
+#kc-info-wrapper {
+    padding: 0;
+}
+
+/* ---------- Language switch ---------- */
+
+.al-locale.pf-v5-c-form-control {
+    width: auto;
+    min-height: 40px;
+    --pf-v5-c-form-control--BackgroundColor: var(--al-surface);
+    border-radius: 999px;
+}
+
+.al-locale.pf-v5-c-form-control > select {
+    min-height: 40px;
+    padding: 0 36px 0 14px;
+    color: var(--al-text-body);
+    font-family: var(--al-font);
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
+}
+
+.al-locale.pf-v5-c-form-control::before,
+.al-locale.pf-v5-c-form-control::after {
+    border-radius: 999px;
+}
+
+/* ---------- Legal footer ---------- */
+
+.al-legal {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 20px;
+    font-size: 13px;
+}
+
+.al-legal a {
+    color: var(--al-text-secondary);
+    text-decoration: none;
+}
+
+.al-legal a:hover,
+.al-legal a:focus-visible {
+    color: var(--al-text);
+    text-decoration: underline;
+}
+
+/* ---------- Login link: waiting and confirm pages ---------- */
+
+.al-link-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.al-link-hero-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    margin-bottom: 16px;
+    border-radius: 14px;
+    color: var(--al-accent);
+    background: var(--al-accent-surface);
+}
+
+.al-link-hero-icon svg {
+    width: 26px;
+    height: 26px;
+}
+
+.al-link-hero-icon.al-success {
+    color: var(--al-success);
+    background: var(--al-success-surface);
+}
+
+.al-link-hero-icon.al-warning {
+    color: var(--al-warning);
+    background: var(--al-warning-surface);
+}
+
+.al-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 4px;
+    padding: 12px 14px;
+    border-radius: var(--al-radius-control);
+    background: var(--al-neutral-chip);
+    color: var(--al-text-body);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.al-status-dot {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--al-accent);
+    animation: al-pulse 1.6s ease-in-out infinite;
+}
+
+.al-status[data-state="confirmed"] {
+    background: var(--al-success-surface);
+}
+
+.al-status[data-state="confirmed"] .al-status-dot {
+    background: var(--al-success);
+    animation: none;
+}
+
+.al-status[data-state="expired"] {
+    background: var(--al-warning-surface);
+}
+
+.al-status[data-state="expired"] .al-status-dot {
+    background: var(--al-warning);
+    animation: none;
+}
+
+@keyframes al-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.35; transform: scale(0.8); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .al-status-dot {
+        animation: none;
+    }
+}
+
+.al-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 24px 0 16px;
+    color: var(--al-text-secondary);
+    font-size: 13px;
+}
+
+.al-divider::before,
+.al-divider::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--al-border);
+}
+
+.al-code-input > input {
+    font-size: 22px !important;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    font-variant-numeric: tabular-nums;
+}
+
+.al-code-input > input::placeholder {
+    color: var(--al-text-muted);
+    opacity: 0.6;
+}
+
+.al-link-help {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid var(--al-border);
+}
+
+.al-link-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 16px;
+}
+
+.al-link-actions form {
+    margin: 0;
+}
+
+.al-request {
+    display: grid;
+    gap: 8px;
+    margin: 4px 0 20px;
+    padding: 14px 16px;
+    border-radius: var(--al-radius-control);
+    background: var(--al-neutral-chip);
+    font-size: 14px;
+}
+
+.al-request > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.al-request dt {
+    color: var(--al-text-secondary);
+}
+
+.al-request dd {
+    margin: 0;
+    color: var(--al-text);
+    font-weight: 600;
+    text-align: right;
+}
+
+.al-link-confirm > .al-muted:last-child {
+    margin: 16px 0 0;
+}
