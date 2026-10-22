@@ -7,9 +7,11 @@ Form" / "Password Form" in the copy with the AutoLogg variants that also offer a
 sign-in link by e-mail, and binds the copy as the browser flow. The original
 flow is not touched: rolling back means binding it again (--bind-flow).
 
-Dry run by default (reads and prints the plan). Changes only with --apply.
+Dry run by default (reads and prints the plan). Changes only with --apply, which
+shows the plan once more and asks before it changes anything (--yes skips that).
 Needs the extension (theme jar with the login-link providers) deployed on the
-server and a working SMTP configuration in the realm.
+server and SMTP configured in the realm; login and e-mail theme are set to
+'autologg' if the realm uses another one (the link pages and e-mail live there).
 
 Signing in to Keycloak (master realm; nothing is printed or stored):
   --admin-user <name>        password grant via admin-cli, password is prompted
@@ -39,6 +41,7 @@ REPLACEMENTS = {
     "auth-username-password-form": "autologg-username-password-link",
     "auth-password-form": "autologg-password-link",
 }
+THEME = "autologg"
 CONFIG_KEYS = {
     "linkTtlMinutes", "codeLength", "maxCodeAttempts", "resendCooldownSeconds",
     "maxSendsPerHour", "excludedIdentityProviders", "markEmailVerified", "passwordLogin",
@@ -178,12 +181,44 @@ def bind(api, realm_alias, flow_alias, apply):
         print("  done")
 
 
+def realm_changes(realm):
+    """Settings the login link depends on: its pages and its e-mail live in the 'autologg' theme."""
+    smtp = realm.get("smtpServer") or {}
+    if not smtp.get("host"):
+        raise KeycloakError("the realm has no SMTP server - the login e-mail could not be sent")
+    changes = {}
+    for key in ("loginTheme", "emailTheme"):
+        if realm.get(key) != THEME:
+            changes[key] = THEME
+    return changes
+
+
+def print_identity_providers(api, config):
+    excluded = {alias.strip().lower() for alias in config.get("excludedIdentityProviders", "").replace(";", ",").split(",")
+                if alias.strip()}
+    providers = api.get("/identity-provider/instances") or []
+    print("\nIdentity providers (users linked to an excluded one get no login e-mail):")
+    for idp in providers:
+        hidden = idp.get("hideOnLogin") or (idp.get("config") or {}).get("hideOnLoginPage") == "true"
+        marks = [m for m, on in (("hidden on the login page", hidden), ("disabled", not idp.get("enabled", True)),
+                                 ("EXCLUDED", idp["alias"].lower() in excluded)) if on]
+        print(f"    - {idp['alias']} ({idp['providerId']}){' - ' + ', '.join(marks) if marks else ''}")
+    if not providers:
+        print("    (none)")
+    unknown = excluded - {idp["alias"].lower() for idp in providers}
+    if unknown:
+        print(f"    note: excluded aliases not in this realm: {sorted(unknown)}")
+
+
 def setup(api, args):
     realm = api.get("")
     current = realm["browserFlow"]
     executions = api.executions(current)
-    print(f"Realm {args.realm}: browser flow {current!r}")
+    print(f"Realm {args.realm}: browser flow {current!r}, login theme {realm.get('loginTheme')!r}, "
+          f"e-mail theme {realm.get('emailTheme')!r}")
     print_flow(executions)
+    config = parse_config(args.config)
+    print_identity_providers(api, config)
 
     ours = [e for e in executions if e.get("providerId") in REPLACEMENTS.values()]
     if ours:
@@ -196,9 +231,12 @@ def setup(api, args):
     new_alias = args.new_flow or f"{current} with login link"
     if new_alias in {f["alias"] for f in api.get("/authentication/flows")}:
         raise KeycloakError(f"flow {new_alias!r} exists already; bind it with --bind-flow or pass --new-flow")
-    config = parse_config(args.config)
+    changes = realm_changes(realm)
 
-    print(f"\nPlan:\n  1. copy {current!r} to {new_alias!r}")
+    print("\nPlan:")
+    for key, value in changes.items():
+        print(f"  0. set {key} to {value!r} (was {realm.get(key)!r})")
+    print(f"  1. copy {current!r} to {new_alias!r}")
     for _, e in targets:
         print(f"  2. in the copy replace {e['displayName']!r} ({e['providerId']}, {e['requirement']}) "
               f"with {REPLACEMENTS[e['providerId']]}")
@@ -208,7 +246,15 @@ def setup(api, args):
     if not args.apply:
         print("\nDry run - nothing changed. Run again with --apply.")
         return
+    if not args.yes:
+        answer = input(f"\nApply this plan to realm {args.realm}? [y/N] ").strip().lower()
+        if answer not in ("y", "yes", "j", "ja"):
+            print("Nothing changed.")
+            return
 
+    if changes:
+        api.call("PUT", "", changes)
+        print(f"  set {', '.join(changes)}")
     api.call("POST", f"/authentication/flows/{quote(current)}/copy", {"newName": new_alias})
     try:
         replace_forms(api, new_alias, config)
@@ -267,7 +313,8 @@ def main():
     p.add_argument("--config", action="append", metavar="KEY=VALUE",
                    help="execution config, e.g. linkTtlMinutes=15, passwordLogin=false or excludedIdentityProviders=entra-acme")
     p.add_argument("--bind-flow", metavar="ALIAS", help="only bind this flow as browser flow (roll back)")
-    p.add_argument("--apply", action="store_true", help="make the changes (default: dry run)")
+    p.add_argument("--apply", action="store_true", help="make the changes after a confirmation (default: dry run)")
+    p.add_argument("--yes", action="store_true", help="with --apply: do not ask before changing anything")
     args = p.parse_args()
     args.server = args.server.rstrip("/")
     if not (args.admin_user or args.admin_client or os.environ.get("KC_ADMIN_TOKEN")):

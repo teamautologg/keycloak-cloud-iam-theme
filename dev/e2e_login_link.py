@@ -467,7 +467,7 @@ def main():
     if args.identifier_first:
         realm = setup_identifier_first(token)
         script = os.path.join(os.path.dirname(__file__), "..", "scripts", "setup_login_link_flow.py")
-        out = subprocess.run([sys.executable, script, "--server", KEYCLOAK, "--realm", realm, "--apply"],
+        out = subprocess.run([sys.executable, script, "--server", KEYCLOAK, "--realm", realm, "--apply", "--yes"],
                              env={**os.environ, "KC_ADMIN_TOKEN": token}, capture_output=True, text=True)
         print(out.stdout[-1200:], out.stderr[-600:])
     configure_execution(token, realm)
