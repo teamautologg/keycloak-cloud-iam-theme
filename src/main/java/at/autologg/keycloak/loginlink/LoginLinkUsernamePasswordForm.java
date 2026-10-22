@@ -66,6 +66,12 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
             links.send(context.getUser(), attempted != null ? attempted : context.getUser().getEmail());
             return;
         }
+        if (usernameHidden(context)) {
+            // A step before (Organization Identity-First Login) took the address and found no
+            // user; it hides the field, so answer exactly as for a known address.
+            links.send(null, context.getAuthenticationSession().getAuthNote(ATTEMPTED_USERNAME));
+            return;
+        }
         String username = form.getFirst(AuthenticationManager.FORM_USERNAME);
         if (username == null || username.isBlank()) {
             context.getEvent().error(Errors.USER_NOT_FOUND);
@@ -76,11 +82,16 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
         links.send(null, username);
     }
 
+    private static boolean usernameHidden(AuthenticationFlowContext context) {
+        return Boolean.parseBoolean(context.getAuthenticationSession().getAuthNote(USERNAME_HIDDEN))
+                && context.getAuthenticationSession().getAuthNote(ATTEMPTED_USERNAME) != null;
+    }
+
     private LoginLinkFlow links(AuthenticationFlowContext context) {
         String back;
         if (passwordLogin) {
             back = LoginLinkSentBean.BACK_PASSWORD;
-        } else if (isUserAlreadySetBeforeUsernamePasswordAuth(context)) {
+        } else if (isUserAlreadySetBeforeUsernamePasswordAuth(context) || usernameHidden(context)) {
             back = LoginLinkSentBean.BACK_NONE;
         } else {
             back = LoginLinkSentBean.BACK_ADDRESS;

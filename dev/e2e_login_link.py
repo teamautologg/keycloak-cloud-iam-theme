@@ -9,6 +9,7 @@ from Mailpit. Standard library only.
 
   python dev/e2e_login_link.py                      # realm autologg-dev (Username Password Form)
   python dev/e2e_login_link.py --identifier-first   # sets up realm autologg-dev-idf (Username Form + Password Form)
+  python dev/e2e_login_link.py --organization       # sets up realm autologg-dev-org (organizations on, like staging-autologg)
 """
 import argparse
 import base64
@@ -217,14 +218,16 @@ def send_link(browser, realm, address, identifier_first=False):
     return browser.submit(page.forms["kc-form-login"], None if identifier_first else {"username": address}, "loginLink")
 
 
-def scenarios(realm, identifier_first):
+def scenarios(realm, identifier_first, organization=False):
     clear_mails()
 
     print("\n[1] password login still works")
     desk = Browser("desk", DESKTOP_UA)
     page = start_login(desk, realm)
     if identifier_first:
+        check("password" not in page.forms["kc-form-login"]["fields"], "first step asks for the address only")
         page = desk.submit(page.forms["kc-form-login"], {"username": USER_WITH_PASSWORD[0]}, "login")
+        check("username" not in page.forms["kc-form-login"]["fields"], "second step hides the address")
         check("password" in page.forms["kc-form-login"]["fields"] or "loginLink" in page.forms["kc-form-login"]["buttons"],
               "identifier-first: second step offers password and link")
         desk.submit(page.forms["kc-form-login"], {"password": USER_WITH_PASSWORD[1]}, "login")
@@ -301,11 +304,17 @@ def scenarios(realm, identifier_first):
         check(page.forms["kc-form-login"]["fields"].get("username") == USER_WITH_PASSWORD[0],
               "address stays filled in")
 
-    if not identifier_first:
+    if not identifier_first or organization:
+        # The Username Form of the identifier-first flow rejects unknown addresses itself; the
+        # organization step passes them on with the address field hidden, like known ones.
         print("\n[6] unknown address looks the same, sends nothing")
         clear_mails()
         desk = Browser("desk", DESKTOP_UA)
-        page = send_link(desk, realm, "niemand@autologg.local")
+        if organization:
+            page = desk.submit(start_login(desk, realm).forms["kc-form-login"], {"username": "niemand@autologg.local"}, "login")
+            check("username" not in page.forms["kc-form-login"]["fields"] and "loginLink" in page.forms["kc-form-login"]["buttons"],
+                  "unknown address reaches the second step with the address hidden")
+        page = send_link(desk, realm, "niemand@autologg.local", identifier_first)
         check("kc-login-link-code-form" in page.forms, "waiting page shown for unknown address")
         time.sleep(2)
         check(not mails_to("niemand@autologg.local"), "no e-mail for unknown address")
@@ -318,7 +327,8 @@ def scenarios(realm, identifier_first):
     page = start_login(desk, realm)
     if identifier_first:
         page = desk.submit(page.forms["kc-form-login"], {"username": USER_WITHOUT_PASSWORD}, "login")
-        check("password" not in page.forms["kc-form-login"]["fields"], "no password field for an account without password")
+        if not organization:
+            check("password" not in page.forms["kc-form-login"]["fields"], "no password field for an account without password")
         page = desk.submit(page.forms["kc-form-login"], None, "loginLink")
     else:
         page = desk.submit(page.forms["kc-form-login"], {"username": USER_WITHOUT_PASSWORD}, "loginLink")
@@ -365,7 +375,7 @@ def update_password_dropped(realm, identifier_first):
         admin_call(realm, "PUT", f"/users/{user['id']}", {"requiredActions": []})
 
 
-def password_off(realm, identifier_first):
+def password_off(realm, identifier_first, organization=False):
     print("\n[8] password login switched off")
     # Admin tokens of the master realm live 60 s; the scenarios before took longer.
     configure_execution(admin_token(), realm, {"passwordLogin": "false"})
@@ -394,13 +404,17 @@ def password_off(realm, identifier_first):
         _, code, _ = latest_mail(USER_WITH_PASSWORD[0])
         desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
         check(desk.code_from_redirects() is not None, "code from the e-mail still logs in")
+        if organization:
+            known = set(page.forms)
+            desk = Browser("desk", DESKTOP_UA)
+            page = send_link(desk, realm, "niemand@autologg.local", identifier_first)
+            check(set(page.forms) == known, "unknown address gets the same waiting page")
     finally:
         configure_execution(admin_token(), realm, {"passwordLogin": "true"})
 
 
-def setup_identifier_first(token):
-    """Realm autologg-dev-idf: copy of autologg-dev with Username Form + Password Form, then the setup script."""
-    realm = "autologg-dev-idf"
+def admin_caller(token):
+    """Admin REST calls below /admin/realms; they return (json, headers), or (None, None) on 409."""
     base = f"{KEYCLOAK}/admin/realms"
 
     def call(method, path, body=None):
@@ -417,12 +431,24 @@ def setup_identifier_first(token):
                 return None, None
             raise
 
+    return call
+
+
+def copy_dev_realm(call, realm, display_name, **settings):
+    """Creates the realm from dev/realm/autologg-dev-realm.json unless it exists."""
     rep = json.load(open(os.path.join(os.path.dirname(__file__), "realm", "autologg-dev-realm.json"), encoding="utf-8"))
-    rep["realm"] = realm
-    rep["displayName"] = "AutoLogg Dev (identifier first)"
+    rep.update(realm=realm, displayName=display_name, **settings)
     for user in rep["users"]:
         user["realmRoles"] = [f"default-roles-{realm}"]
-    if call("POST", "", rep)[0] is None and call("GET", f"/{realm}")[0]["browserFlow"] != "browser":
+    call("POST", "", rep)
+
+
+def setup_identifier_first(token):
+    """Realm autologg-dev-idf: copy of autologg-dev with Username Form + Password Form, then the setup script."""
+    realm = "autologg-dev-idf"
+    call = admin_caller(token)
+    copy_dev_realm(call, realm, "AutoLogg Dev (identifier first)")
+    if call("GET", f"/{realm}")[0]["browserFlow"] != "browser":
         return realm  # already set up by an earlier run
     flow = "browser idf"
     call("POST", f"/{realm}/authentication/flows/browser/copy", {"newName": flow})
@@ -447,6 +473,19 @@ def setup_identifier_first(token):
     return realm
 
 
+def setup_organization(token):
+    """Realm autologg-dev-org: copy of autologg-dev with organizations on and one organization, as in
+    staging-autologg. Its Organization Identity-First Login asks for the address first and hides the
+    field on the next page, for unknown addresses too."""
+    realm = "autologg-dev-org"
+    call = admin_caller(token)
+    copy_dev_realm(call, realm, "AutoLogg Dev (organization)", organizationsEnabled=True)
+    if not call("GET", f"/{realm}/organizations")[0]:
+        call("POST", f"/{realm}/organizations",
+             {"name": "Beispiel GmbH", "alias": "beispiel", "domains": [{"name": "beispiel.example"}]})
+    return realm
+
+
 def admin_token():
     form = urllib.parse.urlencode({"grant_type": "password", "client_id": "admin-cli",
                                    "username": "admin", "password": "password"}).encode()
@@ -458,14 +497,15 @@ def main():
     global KEYCLOAK
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--identifier-first", action="store_true")
+    p.add_argument("--organization", action="store_true")
     p.add_argument("--keycloak", default=KEYCLOAK, help=f"Keycloak base URL (default {KEYCLOAK})")
     args = p.parse_args()
     KEYCLOAK = args.keycloak.rstrip("/")
 
     realm = "autologg-dev"
     token = admin_token()
-    if args.identifier_first:
-        realm = setup_identifier_first(token)
+    if args.identifier_first or args.organization:
+        realm = setup_identifier_first(token) if args.identifier_first else setup_organization(token)
         script = os.path.join(os.path.dirname(__file__), "..", "scripts", "setup_login_link_flow.py")
         out = subprocess.run([sys.executable, script, "--server", KEYCLOAK, "--realm", realm, "--apply", "--yes"],
                              env={**os.environ, "KC_ADMIN_TOKEN": token}, capture_output=True, text=True)
@@ -473,9 +513,10 @@ def main():
     configure_execution(token, realm)
 
     print(f"Realm {realm}")
-    scenarios(realm, args.identifier_first)
-    password_off(realm, args.identifier_first)
-    update_password_dropped(realm, args.identifier_first)
+    two_step = args.identifier_first or args.organization
+    scenarios(realm, two_step, args.organization)
+    password_off(realm, two_step, args.organization)
+    update_password_dropped(realm, two_step)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
 

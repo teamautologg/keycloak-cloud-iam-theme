@@ -14,7 +14,7 @@ Keycloak extension for the AutoLogg realms, one jar:
 ### How it works
 
 1. The user types their address and presses *Anmeldelink per E-Mail senden* (in identifier-first
-   flows on the password step).
+   flows and behind *Organization Identity-First Login* on the password step).
 2. Keycloak sends an e-mail with a link and a 6-digit code (valid 15 minutes, single use) and
    shows a waiting page.
 3. Either the user opens the link - in any browser, on any device - and presses *Ja, anmelden*;
@@ -114,7 +114,13 @@ Set up the flow once and run the end-to-end check (two browsers, e-mails from Ma
 python scripts/setup_login_link_flow.py --server http://localhost:8080 --realm autologg-dev --admin-user admin --apply
 python dev/e2e_login_link.py
 python dev/e2e_login_link.py --identifier-first
+python dev/e2e_login_link.py --organization
 ```
+
+`--identifier-first` sets up realm `autologg-dev-idf` (Username Form + Password Form),
+`--organization` realm `autologg-dev-org` with organizations switched on, as in `staging-autologg`:
+there *Organization Identity-First Login* asks for the address first and the login page after it
+hides the address field, for unknown addresses too.
 
 Unit tests run with the Maven build.
 
