@@ -210,11 +210,25 @@ def pause_for_cooldown():
     time.sleep(COOLDOWN_SECONDS + 0.5)
 
 
+def email_first(page):
+    """Page one of the e-mail-first login: the address only, posted with loginLinkNext."""
+    form = page.forms.get("kc-form-login")
+    return form is not None and "loginLinkNext" in form["fields"]
+
+
+def choose(browser, page, address):
+    """E-mail first: posts the address on page one and returns the choice page."""
+    return browser.submit(page.forms["kc-form-login"], {"username": address}, "next")
+
+
 def send_link(browser, realm, address, identifier_first=False):
     pause_for_cooldown()
     page = start_login(browser, realm)
     if identifier_first:
         page = browser.submit(page.forms["kc-form-login"], {"username": address}, "login")
+    elif email_first(page):
+        page = choose(browser, page, address)
+        return browser.submit(page.forms["kc-login-link-form"], None, "loginLink")
     return browser.submit(page.forms["kc-form-login"], None if identifier_first else {"username": address}, "loginLink")
 
 
@@ -232,9 +246,32 @@ def scenarios(realm, identifier_first, organization=False):
               "identifier-first: second step offers password and link")
         desk.submit(page.forms["kc-form-login"], {"password": USER_WITH_PASSWORD[1]}, "login")
     else:
-        check("loginLink" in page.forms["kc-form-login"]["buttons"], "login page offers the link button")
-        desk.submit(page.forms["kc-form-login"], {"username": USER_WITH_PASSWORD[0], "password": USER_WITH_PASSWORD[1]}, "login")
+        check(email_first(page) and "password" not in page.forms["kc-form-login"]["fields"],
+              "e-mail first: page one asks for the address only")
+        check("kc-social-providers" in desk.html, "page one shows the social logins")
+        page = choose(desk, page, USER_WITH_PASSWORD[0])
+        check("loginLink" in page.forms["kc-login-link-form"]["buttons"]
+              and "password" in page.forms["kc-form-login"]["fields"]
+              and USER_WITH_PASSWORD[0] in desk.html,
+              "page two offers link and password for the address")
+        check("kc-social-providers" not in desk.html, "page two shows no social logins")
+        page = desk.submit(page.forms["kc-form-login"], {"password": "falsch"}, "login")
+        check("kc-login-link-form" in page.forms and "kc-form-login" in page.forms,
+              "wrong password stays on page two")
+        time.sleep(1.2)
+        desk.submit(page.forms["kc-form-login"], {"password": USER_WITH_PASSWORD[1]}, "login")
     check(desk.code_from_redirects() is not None, "password login returns an authorization code")
+
+    if not identifier_first:
+        print("\n[1b] other address")
+        desk = Browser("desk", DESKTOP_UA)
+        page = choose(desk, start_login(desk, realm), USER_WITH_PASSWORD[0])
+        page = desk.submit(page.forms["kc-login-change-address-form"], None, "loginLinkChangeAddress")
+        check(email_first(page) and page.forms["kc-form-login"]["fields"].get("username") == USER_WITH_PASSWORD[0],
+              "back to page one with the address filled in")
+        page = choose(desk, page, "niemand@autologg.local")
+        check("password" in page.forms["kc-form-login"]["fields"] and "niemand@autologg.local" in desk.html,
+              "unknown address gets page two like an account with password")
 
     print("\n[2] link confirmed on another device finishes the waiting login")
     desk = Browser("desk", DESKTOP_UA)
@@ -298,7 +335,7 @@ def scenarios(realm, identifier_first, organization=False):
     page = desk.submit(page.forms["kc-login-link-resend-form"])
     check(latest_mail(USER_WITH_PASSWORD[0])[0] is not None, "resend after the cooldown sends a new e-mail")
     page = desk.submit(page.forms["kc-login-link-cancel-form"])
-    check("kc-form-login" in page.forms and "loginLink" in page.forms["kc-form-login"]["buttons"],
+    check(any("loginLink" in f["buttons"] for f in page.forms.values()),
           "cancel returns to the login page")
     if not identifier_first:
         check(page.forms["kc-form-login"]["fields"].get("username") == USER_WITH_PASSWORD[0],
@@ -331,7 +368,9 @@ def scenarios(realm, identifier_first, organization=False):
             check("password" not in page.forms["kc-form-login"]["fields"], "no password field for an account without password")
         page = desk.submit(page.forms["kc-form-login"], None, "loginLink")
     else:
-        page = desk.submit(page.forms["kc-form-login"], {"username": USER_WITHOUT_PASSWORD}, "loginLink")
+        page = choose(desk, page, USER_WITHOUT_PASSWORD)
+        check("kc-form-login" not in page.forms, "no password field for an account without password")
+        page = desk.submit(page.forms["kc-login-link-form"], None, "loginLink")
     _, code, _ = latest_mail(USER_WITHOUT_PASSWORD)
     desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
     check(desk.code_from_redirects() is not None, "account without password logs in with the code")
@@ -359,7 +398,8 @@ def update_password_dropped(realm, identifier_first):
             page = desk.submit(page.forms["kc-form-login"], {"username": address}, "login")
             desk.submit(page.forms["kc-form-login"], {"password": password}, "login")
         else:
-            desk.submit(page.forms["kc-form-login"], {"username": address, "password": password}, "login")
+            page = choose(desk, page, address)
+            desk.submit(page.forms["kc-form-login"], {"password": password}, "login")
         check(desk.code_from_redirects() is None and "password-new" in desk.html,
               "password login still asks for a new password")
 

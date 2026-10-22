@@ -26,6 +26,7 @@ final class LoginLinkConfig {
     static final String EXCLUDED_IDENTITY_PROVIDERS = "excludedIdentityProviders";
     static final String MARK_EMAIL_VERIFIED = "markEmailVerified";
     static final String PASSWORD_LOGIN = "passwordLogin";
+    static final String EMAIL_FIRST = "emailFirst";
 
     static final int DEFAULT_LINK_TTL_MINUTES = 15;
     static final int DEFAULT_CODE_LENGTH = 6;
@@ -42,6 +43,8 @@ final class LoginLinkConfig {
     final boolean markEmailVerified;
     /** False: the form asks for the address only and never checks a password. */
     final boolean passwordLogin;
+    /** Username Password Form: first page asks for the address, the second offers link or password. */
+    final boolean emailFirst;
 
     private LoginLinkConfig(Map<String, String> values) {
         linkTtlMinutes = intValue(values, LINK_TTL_MINUTES, DEFAULT_LINK_TTL_MINUTES, 1, 60);
@@ -52,6 +55,7 @@ final class LoginLinkConfig {
         excludedIdentityProviders = aliases(values.get(EXCLUDED_IDENTITY_PROVIDERS));
         markEmailVerified = flag(values, MARK_EMAIL_VERIFIED);
         passwordLogin = flag(values, PASSWORD_LOGIN);
+        emailFirst = flag(values, EMAIL_FIRST);
     }
 
     static LoginLinkConfig from(AuthenticatorConfigModel model) {
@@ -120,6 +124,13 @@ final class LoginLinkConfig {
                 .name(PASSWORD_LOGIN)
                 .label("Password login")
                 .helpText("Off: the page asks for the e-mail address only and sends the sign-in link; this form accepts no password (passkeys still work). Password grants of the API are a separate flow.")
+                .type(ProviderConfigProperty.BOOLEAN_TYPE)
+                .defaultValue("true")
+                .add()
+                .property()
+                .name(EMAIL_FIRST)
+                .label("E-mail first")
+                .helpText("Username Password Form only: the first page asks for the e-mail address, the second offers the sign-in link or the password. Off: address, password and link on one page.")
                 .type(ProviderConfigProperty.BOOLEAN_TYPE)
                 .defaultValue("true")
                 .add()

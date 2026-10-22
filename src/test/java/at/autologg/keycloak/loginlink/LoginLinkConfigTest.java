@@ -24,6 +24,12 @@ class LoginLinkConfigTest {
         assertTrue(config.excludedIdentityProviders.isEmpty());
         assertTrue(config.markEmailVerified);
         assertTrue(config.passwordLogin);
+        assertTrue(config.emailFirst);
+    }
+
+    @Test
+    void emailFirstCanBeSwitchedOff() {
+        assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.EMAIL_FIRST, "false"))).emailFirst);
     }
 
     @Test
@@ -56,7 +62,7 @@ class LoginLinkConfigTest {
 
     @Test
     void exposesAllPropertiesInTheAdminConsole() {
-        assertEquals(8, LoginLinkConfig.properties().size());
+        assertEquals(9, LoginLinkConfig.properties().size());
     }
 
     private static AuthenticatorConfigModel model(Map<String, String> values) {

@@ -117,7 +117,7 @@ if (root) {
     const tick = () => {
       if (wait > 0) {
         resend.disabled = true;
-        resend.textContent = labelWait.replace("{0}", String(wait));
+        resend.textContent = labelWait.replace("{0}", Math.floor(wait / 60) + ":" + String(wait % 60).padStart(2, "0"));
         wait -= 1;
         setTimeout(tick, 1000);
       } else {

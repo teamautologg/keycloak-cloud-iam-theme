@@ -54,9 +54,9 @@
     --al-warning-surface: #FDF6EA;
 
     --al-card-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-    --al-radius-card: 18px;
+    --al-radius-card: 24px;
     --al-radius-control: 12px;
-    --al-control-height: 48px;
+    --al-control-height: 52px;
 
     /* PatternFly 5 tokens used by the keycloak.v2 markup */
     --pf-v5-global--FontFamily--text: var(--al-font);
@@ -192,7 +192,7 @@ body.al-body {
 
 @media (min-width: 480px) {
     .al-card.pf-v5-c-login__main {
-        padding: 36px 32px 32px;
+        padding: 30px;
     }
 }
 
@@ -216,9 +216,9 @@ body.al-body {
     margin: 0;
     color: var(--al-text);
     font-family: var(--al-font);
-    font-size: 24px;
-    font-weight: 800;
-    line-height: 1.25;
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.2;
     letter-spacing: -0.015em;
 }
 
@@ -585,8 +585,8 @@ body.al-body {
 .al-card #kc-social-providers .pf-v5-c-button {
     justify-content: center;
     gap: 10px;
-    min-height: 46px;
-    font-weight: 600;
+    min-height: var(--al-control-height);
+    font-weight: 700;
     color: var(--al-text);
     background: var(--al-surface);
     border-radius: var(--al-radius-control);
@@ -803,9 +803,7 @@ body.al-body {
 }
 
 .al-link-help {
-    margin-top: 24px;
-    padding-top: 18px;
-    border-top: 1px solid var(--al-border);
+    margin-top: 20px;
 }
 
 .al-link-actions {
@@ -848,4 +846,141 @@ body.al-body {
 
 .al-link-confirm > .al-muted:last-child {
     margin: 16px 0 0;
+}
+
+/* ---------- E-mail first (handoff "Login B", 22.10.2026) ---------- */
+
+.al-help {
+    margin: 12px 0 0;
+    color: var(--al-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.al-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--al-text-secondary);
+    font: 400 14px/1 var(--al-font);
+    cursor: pointer;
+}
+
+.al-back-link:hover,
+.al-back-link:focus-visible {
+    color: var(--al-text);
+}
+
+.al-back-link svg {
+    width: 16px;
+    height: 16px;
+}
+
+.al-mail-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    margin: 0 0 20px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: var(--al-input-bg);
+    color: var(--al-text-body);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.al-mail-pill svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+}
+
+.al-mail-pill span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Choice page: link form, "oder", password form. */
+#kc-login-link-form + .al-divider {
+    margin: 20px 0 16px;
+}
+
+.al-remember-only {
+    margin-top: 16px;
+}
+
+/* Social buttons side by side; an odd last one spans the row. */
+.al-card #kc-social-providers.al-social-two ul {
+    grid-template-columns: 1fr 1fr;
+}
+
+.al-card #kc-social-providers.al-social-two li:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+}
+
+/* Waiting page, centred like the handoff's confirmation screen. */
+.al-link-sent .al-link-hero {
+    align-items: center;
+    text-align: center;
+}
+
+.al-link-sent .al-link-hero-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+}
+
+.al-link-sent .al-link-hero-icon svg {
+    width: 30px;
+    height: 30px;
+}
+
+.al-resend-line {
+    display: block;
+}
+
+.al-card .al-resend-line .pf-v5-c-button.pf-m-link.al-inline-button {
+    display: inline;
+    min-height: 0;
+    margin-left: 2px;
+    padding: 0;
+    font-size: inherit;
+    vertical-align: baseline;
+}
+
+.al-card:has(.al-link-sent) #kc-page-title {
+    text-align: center;
+}
+
+.al-separator {
+    height: 1px;
+    margin: 20px 0 8px;
+    background: var(--al-border);
+}
+
+.al-ghost-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: var(--al-control-height);
+    padding: 0 16px;
+    border: 0;
+    border-radius: var(--al-radius-control);
+    background: none;
+    color: var(--al-accent);
+    font: 600 16px/1 var(--al-font);
+    cursor: pointer;
+}
+
+.al-ghost-button:hover,
+.al-ghost-button:focus-visible {
+    background: var(--al-accent-surface);
 }

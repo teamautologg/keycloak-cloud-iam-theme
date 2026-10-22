@@ -1,12 +1,13 @@
-<#macro show social>
+<#-- columns=2: half-width buttons side by side (e-mail-first page); an odd last one spans the row. -->
+<#macro show social label="" columns=1>
   <#assign logos = ["google", "github", "facebook", "gitlab", "linkedin", "linkedin-openid-connect", "openshift-v4",
                     "stackoverflow", "twitter", "microsoft", "apple", "bitbucket", "instagram", "paypal"]>
   <div class="${properties.kcLoginMainFooterBand!}">
       <span class="${properties.kcLoginMainFooterBandItem!} ${properties.kcLoginMainFooterHelperText!}">
-          ${msg("identity-provider-login-label")}
+          <#if label?has_content>${label}<#else>${msg("identity-provider-login-label")}</#if>
       </span>
   </div>
-  <div id="kc-social-providers" class="${properties.kcFormSocialAccountSectionClass!}">
+  <div id="kc-social-providers" class="${properties.kcFormSocialAccountSectionClass!}<#if columns == 2> al-social-two</#if>">
       <ul class="${properties.kcFormSocialAccountListClass!} <#if social.providers?size gt 3>${properties.kcFormSocialAccountListGridClass!}</#if>">
           <#list social.providers as p>
               <li class="<#if social.providers?size gt 3>${properties.kcFormSocialAccountGridItem!}<#else>${properties.kcFormSocialAccountListItemClass!}</#if>">

@@ -185,6 +185,7 @@
 
     <main class="${properties.kcLoginMain!} al-card">
       <div class="${properties.kcLoginMainHeader!}">
+        <#nested "beforeHeader">
         <h1 class="${properties.kcLoginMainTitle!}" id="kc-page-title"><#nested "header"></h1>
       </div>
       <div class="${properties.kcLoginMainBody!}">

@@ -21,6 +21,8 @@ final class LoginLink {
     static final String NOTE_ATTEMPTS = "autologg.loginLink.attempts";
     static final String NOTE_SENT_AT = "autologg.loginLink.sentAt";
     static final String NOTE_TOKEN_HASH = "autologg.loginLink.token";
+    /** Address taken on the first page of the e-mail-first login; set while the second page is shown. */
+    static final String NOTE_CHOICE_ADDRESS = "autologg.loginLink.address";
 
     // Single-use store.
     static final String LINK_PREFIX = "autologg-login-link:";
@@ -47,6 +49,8 @@ final class LoginLink {
     static final String FORM_CHECK = "loginLinkCheck";
     static final String FORM_RESEND = "loginLinkResend";
     static final String FORM_CANCEL = "loginLinkCancel";
+    static final String FORM_NEXT = "loginLinkNext";
+    static final String FORM_CHANGE_ADDRESS = "loginLinkChangeAddress";
 
     // Templates and their attributes.
     static final String TEMPLATE_SENT = "login-link-sent.ftl";

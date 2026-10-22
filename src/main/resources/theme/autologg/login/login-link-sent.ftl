@@ -13,13 +13,14 @@
 
             <div class="al-link-hero">
                 <span class="al-link-hero-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3.5 6.5h17v11h-17zM3.5 7.5l8.5 6.2 8.5-6.2"/></svg>
+                    <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M22 13V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h8M22 7l-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7M16 19l2 2 4-4"/></svg>
                 </span>
                 <p class="al-text">
+                    <#assign minutes = ((loginLinkSent.expiresInSeconds + 59) / 60)?floor>
                     <#if loginLinkSent.identifier?has_content>
-                        ${msg("loginLinkSentTo")} <strong class="al-nowrap">${loginLinkSent.identifier}</strong>
+                        ${msg("loginLinkSentTo")} <strong class="al-nowrap">${loginLinkSent.identifier}</strong>${msg("loginLinkSentToEnd")} ${msg("loginLinkSentValid", minutes?c)}
                     <#else>
-                        ${msg("loginLinkSentToAccount")}
+                        ${msg("loginLinkSentToAccount")} ${msg("loginLinkSentValid", minutes?c)}
                     </#if>
                 </p>
                 <p class="al-text al-muted">${msg("loginLinkSentHint")}</p>
@@ -54,27 +55,26 @@
             </form>
 
             <div class="al-link-help">
-                <p class="al-text al-muted"><strong>${msg("loginLinkNoMail")}</strong> ${msg("loginLinkNoMailHint")}</p>
-                <div class="al-link-actions">
-                    <form id="kc-login-link-resend-form" action="${url.loginAction}" method="post">
-                        <input type="hidden" name="${loginLinkSent.resendParameter}" value="1"/>
-                        <button type="submit" id="kc-login-link-resend" class="${properties.kcButtonLinkClass!} al-inline-button"
-                                data-wait="${loginLinkSent.resendAvailableInSeconds?c}"
-                                data-label="${msg("loginLinkResend")}"
-                                data-label-wait="${msg("loginLinkResendIn")}">${msg("loginLinkResend")}</button>
-                    </form>
-                    <#if loginLinkSent.back != "none">
+                <form id="kc-login-link-resend-form" class="al-help al-resend-line" action="${url.loginAction}" method="post">
+                    <input type="hidden" name="${loginLinkSent.resendParameter}" value="1"/>
+                    <span>${msg("loginLinkNoMailHint")}</span>
+                    <button type="submit" id="kc-login-link-resend" class="${properties.kcButtonLinkClass!} al-inline-button"
+                            data-wait="${loginLinkSent.resendAvailableInSeconds?c}"
+                            data-label="${msg("loginLinkResend")}"
+                            data-label-wait="${msg("loginLinkResendIn")}">${msg("loginLinkResend")}</button>
+                </form>
+                <#if loginLinkSent.back != "none">
+                    <div class="al-separator"></div>
                     <form id="kc-login-link-cancel-form" action="${url.loginAction}" method="post">
                         <input type="hidden" name="${loginLinkSent.cancelParameter}" value="1"/>
                         <#if loginLinkSent.identifier?has_content>
                             <input type="hidden" name="username" value="${loginLinkSent.identifier}"/>
                         </#if>
-                        <button type="submit" class="${properties.kcButtonLinkClass!} al-inline-button">
-                            ${(loginLinkSent.back == "password")?then(msg("loginLinkUsePassword"), msg("loginLinkOtherAddress"))}
+                        <button type="submit" class="al-ghost-button">
+                            ${(loginLinkSent.back == "password")?then(msg("loginLinkUsePasswordInstead"), msg("loginLinkOtherAddress"))}
                         </button>
                     </form>
-                    </#if>
-                </div>
+                </#if>
             </div>
         </div>
         <script type="module" src="${url.resourcesPath}/js/login-link.js"></script>

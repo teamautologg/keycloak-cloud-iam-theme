@@ -13,8 +13,11 @@ Keycloak extension for the AutoLogg realms, one jar:
 
 ### How it works
 
-1. The user types their address and presses *Anmeldelink per E-Mail senden* (in identifier-first
-   flows and behind *Organization Identity-First Login* on the password step).
+1. The user types their address and presses *Weiter*; the next page offers *Anmeldelink per E-Mail
+   senden* (primary) or the password ("e-mail first", execution option `emailFirst`, default on;
+   unknown addresses get the same page, accounts without password see no password field). With
+   `emailFirst=false` address, password and link share one page; in identifier-first flows and
+   behind *Organization Identity-First Login* the button sits on the password step.
 2. Keycloak sends an e-mail with a link and a 6-digit code (valid 15 minutes, single use) and
    shows a waiting page.
 3. Either the user opens the link - in any browser, on any device - and presses *Ja, anmelden*;
