@@ -36,6 +36,12 @@ number the waiting page shows (number matching, as in Microsoft Authenticator), 
 someone who starts a login with another person's address cannot get it confirmed by a careless tap.
 A wrong number or *Das war ich nicht* ends that login; the waiting page says so.
 
+On desktops the waiting page offers *Gmail öffnen* / *Outlook öffnen* (new tab) for the address:
+known consumer domains directly, company domains by their MX records (Microsoft 365, Google
+Workspace; looked up with a 0.5 s timeout, cached 6 h). Gmail opens on a search for our sender, spam
+included. Not on phones: there the login runs in the app's in-app browser, where a link would leave
+the waiting page. The button depends on the domain only, not on whether an account exists.
+
 ### Providers
 
 | ID | Admin console name | Use instead of |

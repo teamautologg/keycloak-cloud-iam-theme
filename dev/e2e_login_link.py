@@ -503,6 +503,24 @@ def ip_limit(realm, identifier_first):
         configure_execution(admin_token(), realm, {"maxSendsPerIpPerHour": "100"})
 
 
+def open_mailbox(realm, identifier_first):
+    print("\n[13] \"Gmail öffnen\" on the waiting page")
+
+    def waiting(address, user_agent):
+        browser = Browser("desk", user_agent)
+        send_link(browser, realm, address, identifier_first)
+        found = re.search(r'id="al-open-mailbox"[^>]*href="([^"]+)"[^>]*target="_blank"', browser.html)
+        return html.unescape(found.group(1)) if found else None
+
+    # Unknown addresses: the page is the same as for accounts, and nothing is sent.
+    check((waiting("niemand-al5388@gmail.com", DESKTOP_UA) or "").startswith("https://mail.google.com/"),
+          "Gmail address: button opens Gmail in a new tab")
+    check(waiting("niemand-al5388@autologg.com", DESKTOP_UA) == "https://outlook.office.com/mail/",
+          "company domain on Microsoft 365 (MX): Outlook")
+    check(waiting("niemand-al5388@gmail.com", PHONE_UA) is None, "no button on a phone (in-app browser)")
+    check(waiting("niemand@autologg.local", DESKTOP_UA) is None, "no button for an unknown provider")
+
+
 def admin_call(realm, method, path, body=None):
     req = urllib.request.Request(f"{KEYCLOAK}/admin/realms/{realm}{path}", method=method,
                                  data=None if body is None else json.dumps(body).encode())
@@ -749,6 +767,8 @@ def main():
     number_matching(realm, two_step)
     pre_hijacking(realm, two_step)
     ip_limit(realm, two_step)
+    if not args.identifier_first:  # its Username Form stops the unknown test addresses before us
+        open_mailbox(realm, two_step)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
 

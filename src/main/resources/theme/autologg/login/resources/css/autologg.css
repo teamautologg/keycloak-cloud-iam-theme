@@ -1078,3 +1078,23 @@ body.al-body {
 .al-ended #kc-login-link-code-form {
     display: none;
 }
+
+/* "Gmail öffnen" on the waiting page */
+.al-card .pf-v5-c-button.al-mailbox-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 16px;
+    text-decoration: none;
+}
+
+.al-mailbox-button .al-external {
+    width: 16px;
+    height: 16px;
+    opacity: 0.7;
+}
+
+.al-ended .al-mailbox-button {
+    display: none;
+}

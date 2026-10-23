@@ -16,9 +16,12 @@ public class LoginLinkSentBean {
     private final String back;
     private final String matchNumber;
     private final boolean denied;
+    private final String mailboxName;
+    private final String mailboxUrl;
 
     LoginLinkSentBean(String identifier, String statusUrl, int codeLength, long expiresInSeconds,
-                      long resendAvailableInSeconds, String back, String matchNumber, boolean denied) {
+                      long resendAvailableInSeconds, String back, String matchNumber, boolean denied,
+                      MailProviders.MailProvider mailbox) {
         this.identifier = identifier;
         this.statusUrl = statusUrl;
         this.codeLength = codeLength;
@@ -27,6 +30,17 @@ public class LoginLinkSentBean {
         this.back = back;
         this.matchNumber = matchNumber;
         this.denied = denied;
+        this.mailboxName = mailbox == null ? "" : mailbox.name();
+        this.mailboxUrl = mailbox == null ? "" : mailbox.url();
+    }
+
+    /** Web mailbox for the address ("Gmail"), empty when unknown or on a phone. */
+    public String getMailboxName() {
+        return mailboxName;
+    }
+
+    public String getMailboxUrl() {
+        return mailboxUrl;
     }
 
     /** Number to pick on the page the link opens; empty for waiting pages from before it existed. */

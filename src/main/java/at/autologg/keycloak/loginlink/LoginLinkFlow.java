@@ -393,7 +393,7 @@ final class LoginLinkFlow {
         LoginFormsProvider form = context.form();
         form.setAttribute(LoginLink.ATTR_SENT,
                 new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, back,
-                        note(LoginLink.NOTE_MATCH), note(LoginLink.NOTE_DENIED) != null));
+                        note(LoginLink.NOTE_MATCH), note(LoginLink.NOTE_DENIED) != null, mailbox(shown)));
         if (fieldError != null) {
             form.addError(fieldError);
         } else if (error != null) {
@@ -475,6 +475,22 @@ final class LoginLinkFlow {
         return userId == null || userId.isEmpty()
                 ? null
                 : context.getSession().users().getUserById(context.getRealm(), userId);
+    }
+
+    /**
+     * "Open Gmail" on desktops only: on phones the login runs in the app's in-app browser, where a
+     * link would leave the waiting page, and the mail app is a tap away anyway.
+     */
+    private MailProviders.MailProvider mailbox(String address) {
+        if (address == null || address.isEmpty()) {
+            return null;
+        }
+        String os = UserAgents.operatingSystem(context.getHttpRequest().getHttpHeaders().getHeaderString("User-Agent"));
+        if ("iPhone".equals(os) || "iPad".equals(os) || "Android".equals(os)) {
+            return null;
+        }
+        Map<String, String> smtp = context.getRealm().getSmtpConfig();
+        return MailProviders.forAddress(address, smtp == null ? null : smtp.get("from")).orElse(null);
     }
 
     /** Expired, or the recipient refused it on the confirm page. */

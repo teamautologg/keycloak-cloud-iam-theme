@@ -25,6 +25,16 @@
                 </p>
             </div>
 
+            <#if loginLinkSent.mailboxUrl?has_content>
+                <#-- New tab: this page has to stay open to finish the login. -->
+                <a id="al-open-mailbox" class="${properties.kcButtonSecondaryClass!} ${properties.kcButtonBlockClass!} al-mailbox-button"
+                   href="${loginLinkSent.mailboxUrl}" target="_blank" rel="noopener noreferrer">
+                    <svg class="al-link-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg>
+                    ${msg("loginLinkOpenMailbox", loginLinkSent.mailboxName)}
+                    <svg class="al-link-button-icon al-external" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+                </a>
+            </#if>
+
             <#if loginLinkSent.matchNumber?has_content>
                 <div class="al-match" aria-describedby="al-match-hint">
                     <span class="al-match-label">${msg("loginLinkMatchLabel")}</span>
