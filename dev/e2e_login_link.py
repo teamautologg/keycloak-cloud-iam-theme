@@ -10,6 +10,7 @@ from Mailpit. Standard library only.
   python dev/e2e_login_link.py                      # realm autologg-dev (Username Password Form)
   python dev/e2e_login_link.py --identifier-first   # sets up realm autologg-dev-idf (Username Form + Password Form)
   python dev/e2e_login_link.py --organization       # sets up realm autologg-dev-org (organizations on, like staging-autologg)
+  python dev/e2e_login_link.py --plain              # realm autologg-dev-plain: our theme, Keycloak's own flow (like prod)
 """
 import argparse
 import base64
@@ -652,6 +653,61 @@ def setup_organization(token):
     return realm
 
 
+def setup_plain(token):
+    """Realm autologg-dev-plain: the theme without the login link - Keycloak's own browser flow, as in prod."""
+    realm = "autologg-dev-plain"
+    copy_dev_realm(admin_caller(token), realm, "AutoLogg Dev (ohne Login-Link)")
+    return realm
+
+
+def plain_scenarios(realm):
+    """Without the login link everything works as with Keycloak's own forms."""
+    address, password = USER_WITH_PASSWORD
+    clear_mails()
+
+    print("\n[P1] login page: Keycloak's one-page form, no link")
+    desk = Browser("desk", DESKTOP_UA)
+    page = start_login(desk, realm)
+    form = page.forms["kc-form-login"]
+    check({"username", "password"} <= set(form["fields"]) and "loginLink" not in form["buttons"]
+          and "loginLinkNext" not in form["fields"], "address and password on one page, no link button")
+    check("kc-social-providers" not in desk.html or "al-social-two" not in desk.html, "social logins in one column")
+    page = desk.submit(form, {"username": address, "password": "falsch"}, "login")
+    check("kc-form-login" in page.forms and desk.code_from_redirects() is None
+          and page.forms["kc-form-login"]["fields"].get("username") == address,
+          "wrong password: same page with an error, address kept")
+    time.sleep(1.2)
+    desk.submit(page.forms["kc-form-login"], {"username": address, "password": password}, "login")
+    check(desk.code_from_redirects() is not None, "right password logs in")
+
+    print("\n[P2] forgot password")
+    desk = Browser("desk", DESKTOP_UA)
+    start_login(desk, realm)
+    reset = re.search(r'href="([^"]*login-actions/reset-credentials[^"]*)"', desk.html)
+    check(reset is not None, "login page links to \"Passwort zurücksetzen\"")
+    page = desk.open(urllib.parse.urljoin(desk.url, html.unescape(reset.group(1))))
+    reset_form = next(iter(page.forms.values()))
+    desk.submit(reset_form, {"username": address})
+    time.sleep(2)
+    check(any("Passwort" in m.get("Subject", "") or "password" in m.get("Subject", "").lower()
+              for m in mails_to(address)), "reset e-mail arrives")
+
+    print("\n[P3] registration")
+    desk = Browser("desk", DESKTOP_UA)
+    start_login(desk, realm)
+    register = re.search(r'href="([^"]*login-actions/registration[^"]*)"', desk.html)
+    check(register is not None, "login page links to the registration")
+    page = desk.open(urllib.parse.urljoin(desk.url, html.unescape(register.group(1))))
+    new_address = f"neu-{secrets.token_hex(3)}@autologg.local"
+    reg_form = page.forms.get("kc-register-form") or next(iter(page.forms.values()))
+    desk.submit(reg_form, {"email": new_address, "firstName": "Neu", "lastName": "TEST",
+                           "password": "Neu12345!", "password-confirm": "Neu12345!"})
+    check(desk.code_from_redirects() is not None, "registration logs the new user in")
+    created = admin_call(realm, "GET", f"/users?email={urllib.parse.quote(new_address)}&exact=true")
+    for user in created:
+        admin_call(realm, "DELETE", f"/users/{user['id']}")
+
+
 def admin_token():
     form = urllib.parse.urlencode({"grant_type": "password", "client_id": "admin-cli",
                                    "username": "admin", "password": "password"}).encode()
@@ -664,12 +720,19 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--identifier-first", action="store_true")
     p.add_argument("--organization", action="store_true")
+    p.add_argument("--plain", action="store_true", help="theme only, Keycloak's own flow (like prod)")
     p.add_argument("--keycloak", default=KEYCLOAK, help=f"Keycloak base URL (default {KEYCLOAK})")
     args = p.parse_args()
     KEYCLOAK = args.keycloak.rstrip("/")
 
     realm = "autologg-dev"
     token = admin_token()
+    if args.plain:
+        realm = setup_plain(token)
+        print(f"Realm {realm}")
+        plain_scenarios(realm)
+        print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
+        sys.exit(1 if failures else 0)
     if args.identifier_first or args.organization:
         realm = setup_identifier_first(token) if args.identifier_first else setup_organization(token)
         script = os.path.join(os.path.dirname(__file__), "..", "scripts", "setup_login_link_flow.py")

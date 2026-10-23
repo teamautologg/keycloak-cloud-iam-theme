@@ -128,12 +128,15 @@ python scripts/setup_login_link_flow.py --server http://localhost:8080 --realm a
 python dev/e2e_login_link.py
 python dev/e2e_login_link.py --identifier-first
 python dev/e2e_login_link.py --organization
+python dev/e2e_login_link.py --plain
 ```
 
 `--identifier-first` sets up realm `autologg-dev-idf` (Username Form + Password Form),
 `--organization` realm `autologg-dev-org` with organizations switched on, as in `staging-autologg`:
 there *Organization Identity-First Login* asks for the address first and the login page after it
 hides the address field, for unknown addresses too.
+`--plain` checks the theme without the login link (Keycloak's own browser flow, as in prod):
+login, wrong password, password reset, registration.
 
 Unit tests run with the Maven build.
 
