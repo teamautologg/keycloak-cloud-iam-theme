@@ -23,6 +23,10 @@ final class LoginLink {
     static final String NOTE_TOKEN_HASH = "autologg.loginLink.token";
     /** Address taken on the first page of the e-mail-first login; set while the second page is shown. */
     static final String NOTE_CHOICE_ADDRESS = "autologg.loginLink.address";
+    /** Number shown on the waiting page; the confirm page asks for it among decoys. */
+    static final String NOTE_MATCH = "autologg.loginLink.match";
+    /** Set by the confirm endpoint when the recipient denied or picked a wrong number. */
+    static final String NOTE_DENIED = "autologg.loginLink.denied";
 
     // Single-use store.
     static final String LINK_PREFIX = "autologg-login-link:";
@@ -30,6 +34,7 @@ final class LoginLink {
     static final String COOLDOWN_PREFIX = "autologg-login-link-cooldown:";
     static final String HOURLY_PREFIX = "autologg-login-link-hourly:";
     static final String FAILURES_PREFIX = "autologg-login-link-failures:";
+    static final String IP_PREFIX = "autologg-login-link-ip:";
 
     // Entries of a link.
     static final String LINK_REALM = "realm";
@@ -41,6 +46,8 @@ final class LoginLink {
     static final String LINK_EXPIRES_AT = "expires";
     static final String LINK_BROWSER = "browser";
     static final String LINK_OS = "os";
+    static final String LINK_MATCH = "match";
+    static final String LINK_CHOICES = "choices";
     static final String CONFIRMED_USER = "user";
 
     // Form parameters of the login and waiting pages.
@@ -51,6 +58,11 @@ final class LoginLink {
     static final String FORM_CANCEL = "loginLinkCancel";
     static final String FORM_NEXT = "loginLinkNext";
     static final String FORM_CHANGE_ADDRESS = "loginLinkChangeAddress";
+
+    // Form parameters of the confirm page.
+    static final String CONFIRM_KEY = "key";
+    static final String CONFIRM_MATCH = "match";
+    static final String CONFIRM_DENY = "deny";
 
     // Templates and their attributes.
     static final String TEMPLATE_SENT = "login-link-sent.ftl";
@@ -63,6 +75,8 @@ final class LoginLink {
 
     /** Event detail on the LOGIN event: "link" or "code". */
     static final String EVENT_DETAIL = "login_link";
+    /** Event detail when the login verified the address and removed what was set up before. */
+    static final String EVENT_DETAIL_RESET = "login_link_reset";
 
     /** Wrong codes per user and hour across all sessions before codes stop working for that hour. */
     static final int MAX_FAILURES_PER_HOUR = 20;
@@ -84,6 +98,10 @@ final class LoginLink {
 
     static String hourlyKey(String realmId, String addressKey, long hour) {
         return HOURLY_PREFIX + realmId + ":" + addressKey + ":" + hour;
+    }
+
+    static String ipKey(String realmId, String ipKey, long hour) {
+        return IP_PREFIX + realmId + ":" + ipKey + ":" + hour;
     }
 
     static String failuresKey(String realmId, String userId, long hour) {

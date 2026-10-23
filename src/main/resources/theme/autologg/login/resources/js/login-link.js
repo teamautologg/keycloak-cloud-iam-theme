@@ -38,6 +38,10 @@ if (root) {
       return;
     }
     status.dataset.state = state;
+    if (state === "expired" || state === "denied") {
+      // Number and code are of no use any more; resend stays.
+      root.classList.add("al-ended");
+    }
     const text = status.dataset["text" + state.charAt(0).toUpperCase() + state.slice(1)];
     const label = status.querySelector(".al-status-text");
     if (text && label) {
@@ -71,8 +75,8 @@ if (root) {
           submit(checkForm);
           return;
         }
-        if (state === "expired") {
-          showState("expired");
+        if (state === "expired" || state === "denied") {
+          showState(state);
           return;
         }
         if (state === "gone") {

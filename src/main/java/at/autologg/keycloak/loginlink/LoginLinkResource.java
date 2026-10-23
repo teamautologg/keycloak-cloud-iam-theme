@@ -1,5 +1,7 @@
 package at.autologg.keycloak.loginlink;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 import jakarta.ws.rs.Consumes;
@@ -41,7 +43,7 @@ public class LoginLinkResource {
 
     /**
      * State of the caller's own waiting login (found through its auth session
-     * cookie): {@code pending}, {@code confirmed}, {@code expired} or {@code gone}.
+     * cookie): {@code pending}, {@code confirmed}, {@code denied}, {@code expired} or {@code gone}.
      */
     @GET
     @Path("status")
@@ -54,7 +56,9 @@ public class LoginLinkResource {
             RootAuthenticationSessionModel root = new AuthenticationSessionManager(session).getCurrentRootAuthenticationSession(realm);
             AuthenticationSessionModel authSession = root == null ? null : root.getAuthenticationSession(client, tabId);
             if (authSession != null && LoginLink.STATE_SENT.equals(authSession.getAuthNote(LoginLink.NOTE_STATE))) {
-                if (session.singleUseObjects().contains(LoginLink.confirmedKey(root.getId(), tabId))) {
+                if (authSession.getAuthNote(LoginLink.NOTE_DENIED) != null) {
+                    state = "denied";
+                } else if (session.singleUseObjects().contains(LoginLink.confirmedKey(root.getId(), tabId))) {
                     state = "confirmed";
                 } else if (expired(authSession.getAuthNote(LoginLink.NOTE_EXPIRES_AT))) {
                     state = "expired";
@@ -90,15 +94,20 @@ public class LoginLinkResource {
         }
         long minutesAgo = Math.max(0, (Time.currentTimeSeconds() - parseLong(link.get(LoginLink.LINK_CREATED_AT))) / 60);
         return render(LoginLinkConfirmBean.confirm(selfUrl(realm), key, LoginLinkSecrets.maskEmail(user.getEmail()),
-                minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS)), user);
+                minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS), choices(link)), user);
     }
 
-    /** Uses up the link and lets the waiting login page finish the login. */
+    /**
+     * Uses up the link. With the number shown on the waiting page the waiting login finishes; a wrong
+     * number or "that was not me" ends it, so someone who started a login with another person's
+     * address cannot get it confirmed by a careless tap.
+     */
     @POST
     @Path("confirm")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Produces(MediaType.TEXT_HTML)
-    public Response confirm(@FormParam("key") String key) {
+    public Response confirm(@FormParam(LoginLink.CONFIRM_KEY) String key, @FormParam(LoginLink.CONFIRM_MATCH) String match,
+                            @FormParam(LoginLink.CONFIRM_DENY) String deny) {
         RealmModel realm = session.getContext().getRealm();
         if (!LoginLinkSecrets.isWellFormedToken(key)) {
             return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), null);
@@ -129,6 +138,15 @@ public class LoginLinkResource {
             return render(LoginLinkConfirmBean.invalid("loginLinkSessionGone"), user);
         }
 
+        String expected = link.get(LoginLink.LINK_MATCH);
+        boolean refused = deny != null;
+        if (refused || (expected != null && !expected.equals(match == null ? null : match.trim()))) {
+            waiting.setAuthNote(LoginLink.NOTE_DENIED, refused ? "refused" : "wrong number");
+            LOG.infof("Login link %s for user %s in realm %s", refused ? "refused" : "confirmed with a wrong number",
+                    user.getId(), realm.getName());
+            return render(LoginLinkConfirmBean.denied(refused ? "loginLinkDeniedText" : "loginLinkWrongNumber"), user);
+        }
+
         session.singleUseObjects().put(LoginLink.confirmedKey(root.getId(), link.get(LoginLink.LINK_TAB)),
                 Math.max(1, expiresAt - now), Map.of(LoginLink.CONFIRMED_USER, user.getId()));
         LOG.debugf("Login link confirmed for user %s in realm %s", user.getId(), realm.getName());
@@ -157,6 +175,11 @@ public class LoginLinkResource {
             self.queryParam(LocaleSelectorProvider.KC_LOCALE_PARAM, locale);
         }
         return self.build().toString();
+    }
+
+    private static List<String> choices(Map<String, String> link) {
+        String raw = link.get(LoginLink.LINK_CHOICES);
+        return raw == null || raw.isBlank() ? List.of() : Arrays.asList(raw.split(","));
     }
 
     private static boolean expired(String expiresAt) {

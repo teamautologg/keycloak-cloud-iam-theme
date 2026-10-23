@@ -23,6 +23,7 @@ final class LoginLinkConfig {
     static final String MAX_CODE_ATTEMPTS = "maxCodeAttempts";
     static final String RESEND_COOLDOWN_SECONDS = "resendCooldownSeconds";
     static final String MAX_SENDS_PER_HOUR = "maxSendsPerHour";
+    static final String MAX_SENDS_PER_IP_PER_HOUR = "maxSendsPerIpPerHour";
     static final String EXCLUDED_IDENTITY_PROVIDERS = "excludedIdentityProviders";
     static final String MARK_EMAIL_VERIFIED = "markEmailVerified";
     static final String PASSWORD_LOGIN = "passwordLogin";
@@ -33,12 +34,14 @@ final class LoginLinkConfig {
     static final int DEFAULT_MAX_CODE_ATTEMPTS = 5;
     static final int DEFAULT_RESEND_COOLDOWN_SECONDS = 30;
     static final int DEFAULT_MAX_SENDS_PER_HOUR = 10;
+    static final int DEFAULT_MAX_SENDS_PER_IP_PER_HOUR = 30;
 
     final int linkTtlMinutes;
     final int codeLength;
     final int maxCodeAttempts;
     final int resendCooldownSeconds;
     final int maxSendsPerHour;
+    final int maxSendsPerIpPerHour;
     final Set<String> excludedIdentityProviders;
     final boolean markEmailVerified;
     /** False: the form asks for the address only and never checks a password. */
@@ -52,6 +55,7 @@ final class LoginLinkConfig {
         maxCodeAttempts = intValue(values, MAX_CODE_ATTEMPTS, DEFAULT_MAX_CODE_ATTEMPTS, 1, 10);
         resendCooldownSeconds = intValue(values, RESEND_COOLDOWN_SECONDS, DEFAULT_RESEND_COOLDOWN_SECONDS, 0, 600);
         maxSendsPerHour = intValue(values, MAX_SENDS_PER_HOUR, DEFAULT_MAX_SENDS_PER_HOUR, 1, 100);
+        maxSendsPerIpPerHour = intValue(values, MAX_SENDS_PER_IP_PER_HOUR, DEFAULT_MAX_SENDS_PER_IP_PER_HOUR, 1, 1000);
         excludedIdentityProviders = aliases(values.get(EXCLUDED_IDENTITY_PROVIDERS));
         markEmailVerified = flag(values, MARK_EMAIL_VERIFIED);
         passwordLogin = flag(values, PASSWORD_LOGIN);
@@ -105,6 +109,13 @@ final class LoginLinkConfig {
                 .helpText("Upper bound of login e-mails per address within one hour. 1-100, default 10.")
                 .type(ProviderConfigProperty.STRING_TYPE)
                 .defaultValue(String.valueOf(DEFAULT_MAX_SENDS_PER_HOUR))
+                .add()
+                .property()
+                .name(MAX_SENDS_PER_IP_PER_HOUR)
+                .label("E-mails per IP address and hour")
+                .helpText("Upper bound of login e-mail requests from one public IP address within one hour, across all addresses. Private addresses (a proxy without forwarded headers) are not limited. 1-1000, default 30.")
+                .type(ProviderConfigProperty.STRING_TYPE)
+                .defaultValue(String.valueOf(DEFAULT_MAX_SENDS_PER_IP_PER_HOUR))
                 .add()
                 .property()
                 .name(EXCLUDED_IDENTITY_PROVIDERS)

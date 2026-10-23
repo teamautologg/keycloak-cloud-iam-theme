@@ -197,7 +197,8 @@ def configure_execution(token, realm, extra=None):
     flow = call("GET", "")["browserFlow"]
     executions = call("GET", f"/authentication/flows/{urllib.parse.quote(flow, safe='')}/executions")
     ours = next(e for e in executions if e.get("providerId", "").startswith("autologg-"))
-    config = {"resendCooldownSeconds": str(COOLDOWN_SECONDS), "maxSendsPerHour": "100", **(extra or {})}
+    config = {"resendCooldownSeconds": str(COOLDOWN_SECONDS), "maxSendsPerHour": "100", "maxSendsPerIpPerHour": "100",
+              **(extra or {})}
     if ours.get("authenticationConfig"):
         current = call("GET", f"/authentication/config/{ours['authenticationConfig']}")
         current["config"].update(config)
@@ -219,6 +220,31 @@ def email_first(page):
 def choose(browser, page, address):
     """E-mail first: posts the address on page one and returns the choice page."""
     return browser.submit(page.forms["kc-form-login"], {"username": address}, "next")
+
+
+def match_number(browser):
+    """The number the waiting page asks to pick on the confirm page."""
+    found = re.search(r'id="al-match-number"[^>]*>\s*(\d+)\s*<', browser.html)
+    return found.group(1) if found else None
+
+
+def confirm_on_phone(phone, link, number):
+    """Opens the e-mailed link on another device and picks the number; returns the page after the POST."""
+    confirm = phone.open(link)
+    return phone.submit(confirm.forms["kc-login-link-confirm-form"], {"match": number})
+
+
+def password_login(browser, realm, address, password, identifier_first):
+    page = start_login(browser, realm)
+    if identifier_first:
+        page = browser.submit(page.forms["kc-form-login"], {"username": address}, "login")
+        return browser.submit(page.forms["kc-form-login"], {"password": password}, "login")
+    if email_first(page):
+        page = choose(browser, page, address)
+        if "kc-form-login" not in page.forms:
+            return page  # account without password: page two offers the link only
+        return browser.submit(page.forms["kc-form-login"], {"password": password}, "login")
+    return browser.submit(page.forms["kc-form-login"], {"username": address, "password": password}, "login")
 
 
 def send_link(browser, realm, address, identifier_first=False):
@@ -283,12 +309,16 @@ def scenarios(realm, identifier_first, organization=False):
     link, code, message = latest_mail(USER_WITH_PASSWORD[0])
     check(link is not None and code is not None, "e-mail with link and code arrived")
     check("Chrome auf Windows" in message["Text"], "e-mail names the requesting browser")
+    number = match_number(desk)
+    check(number is not None, "waiting page shows the number to pick")
     phone = Browser("phone", PHONE_UA)
     confirm = phone.open(link)
     check(confirm.data_state == "confirm", "GET of the link only asks for confirmation")
+    choices = re.findall(r'name="match" value="(\d+)"', phone.html)
+    check(len(choices) == 3 and number in choices, "confirm page offers three numbers, one of them right")
     check(desk.json(status_url)["state"] == "pending", "a GET (mail scanner) does not confirm")
-    done = phone.submit(confirm.forms["kc-login-link-confirm-form"])
-    check(done.data_state == "done", "POST confirms")
+    done = phone.submit(confirm.forms["kc-login-link-confirm-form"], {"match": number})
+    check(done.data_state == "done", "POST with the right number confirms")
     check(desk.json(status_url)["state"] == "confirmed", "waiting page sees the confirmation")
     again = phone.open(urllib.parse.urljoin(phone.url, confirm.forms["kc-login-link-confirm-form"]["action"]),
                        {"key": link_key(link)})
@@ -374,6 +404,102 @@ def scenarios(realm, identifier_first, organization=False):
     _, code, _ = latest_mail(USER_WITHOUT_PASSWORD)
     desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
     check(desk.code_from_redirects() is not None, "account without password logs in with the code")
+
+
+def number_matching(realm, identifier_first):
+    print("\n[10] wrong number and \"that wasn't me\"")
+    address = USER_WITH_PASSWORD[0]
+    clear_mails()
+    desk = Browser("desk", DESKTOP_UA)
+    page = send_link(desk, realm, address, identifier_first)
+    status_url = html.unescape(re.search(r'data-status-url="([^"]+)"', desk.html).group(1))
+    number = match_number(desk)
+    link, code, _ = latest_mail(address)
+    phone = Browser("phone", PHONE_UA)
+    confirm = phone.open(link)
+    wrong = next(c for c in re.findall(r'name="match" value="(\d+)"', phone.html) if c != number)
+    done = phone.submit(confirm.forms["kc-login-link-confirm-form"], {"match": wrong})
+    check(done.data_state == "denied", "a wrong number cancels the login")
+    check(desk.json(status_url)["state"] == "denied", "the waiting page learns about it")
+    desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+    check(desk.code_from_redirects() is None, "the code of a cancelled login no longer works")
+
+    clear_mails()
+    desk = Browser("desk", DESKTOP_UA)
+    send_link(desk, realm, address, identifier_first)
+    status_url = html.unescape(re.search(r'data-status-url="([^"]+)"', desk.html).group(1))
+    link, _, _ = latest_mail(address)
+    phone = Browser("phone", PHONE_UA)
+    confirm = phone.open(link)
+    done = phone.submit(confirm.forms["kc-login-link-deny-form"], None, "deny")
+    check(done.data_state == "denied" and desk.json(status_url)["state"] == "denied",
+          "\"that wasn't me\" cancels the login")
+
+
+def pre_hijacking(realm, identifier_first):
+    print("\n[11] account registered by someone else before the owner verified it")
+    address, attacker_password = "vorab@autologg.local", "Angreifer1!"
+    for old in admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true"):
+        admin_call(realm, "DELETE", f"/users/{old['id']}")
+    admin_call(realm, "POST", "/users", {
+        "username": address, "email": address, "firstName": "Vorab", "lastName": "ANGREIFER",
+        "enabled": True, "emailVerified": False,
+        "credentials": [{"type": "password", "value": attacker_password, "temporary": False}]})
+    user = admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true")[0]
+    try:
+        attacker = Browser("attacker", DESKTOP_UA)
+        password_login(attacker, realm, address, attacker_password, identifier_first)
+        check(attacker.code_from_redirects() is not None, "the other person can sign in before (realm without verify e-mail)")
+
+        clear_mails()
+        owner = Browser("owner", DESKTOP_UA)
+        page = send_link(owner, realm, address, identifier_first)
+        _, code, _ = latest_mail(address)
+        owner.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check(owner.code_from_redirects() is not None, "the owner signs in with the code")
+
+        after = admin_call(realm, "GET", f"/users/{user['id']}")
+        credentials = admin_call(realm, "GET", f"/users/{user['id']}/credentials")
+        sessions = admin_call(realm, "GET", f"/users/{user['id']}/sessions")
+        check(after["emailVerified"], "e-mail is verified now")
+        check(not any(c["type"] == "password" for c in credentials), "the password set before is gone")
+        check(len(sessions) == 1, "only the owner's session is left")
+        time.sleep(1.2)
+        attacker = Browser("attacker", DESKTOP_UA)
+        password_login(attacker, realm, address, attacker_password, identifier_first)
+        check(attacker.code_from_redirects() is None, "the old password no longer signs in")
+    finally:
+        admin_call(realm, "DELETE", f"/users/{user['id']}")
+
+
+def ip_limit(realm, identifier_first):
+    print("\n[12] e-mails per IP address and hour")
+    configure_execution(admin_token(), realm, {"maxSendsPerIpPerHour": "2"})
+    # A public client address over plain http trips the realm's "SSL required: external requests".
+    ssl_required = admin_call(realm, "GET", "")["sslRequired"]
+    admin_call(realm, "PUT", "", {"sslRequired": "none"})
+    try:
+        ip = f"203.0.113.{secrets.randbelow(250) + 1}"  # TEST-NET-3: public, never routed
+
+        def from_ip(address, client_ip):
+            browser = Browser("desk", DESKTOP_UA)
+            browser.opener.addheaders.append(("X-Forwarded-For", client_ip))
+            send_link(browser, realm, address, identifier_first)
+            return browser
+
+        # Known accounts: the Username Form of the identifier-first flow stops unknown ones before us.
+        for address in (USER_WITHOUT_PASSWORD, USER_WITH_PASSWORD[0]):
+            from_ip(address, ip)
+        clear_mails()
+        third = from_ip(USER_WITH_PASSWORD[0], ip)
+        check("aus diesem Netzwerk" in third.html, "third request from the same IP is refused with a message")
+        time.sleep(2)
+        check(not mails_to(USER_WITH_PASSWORD[0]), "and sends nothing")
+        from_ip(USER_WITH_PASSWORD[0], "198.51.100.9" if not ip.endswith(".9") else "198.51.100.10")
+        check(latest_mail(USER_WITH_PASSWORD[0])[0] is not None, "another IP still gets its e-mail")
+    finally:
+        admin_call(realm, "PUT", "", {"sslRequired": ssl_required})
+        configure_execution(admin_token(), realm, {"maxSendsPerIpPerHour": "100"})
 
 
 def admin_call(realm, method, path, body=None):
@@ -557,6 +683,9 @@ def main():
     scenarios(realm, two_step, args.organization)
     password_off(realm, two_step, args.organization)
     update_password_dropped(realm, two_step)
+    number_matching(realm, two_step)
+    pre_hijacking(realm, two_step)
+    ip_limit(realm, two_step)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
 

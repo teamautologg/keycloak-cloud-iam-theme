@@ -6,7 +6,7 @@
     <#if section = "header">
         ${msg("loginLinkSentTitle")}
     <#elseif section = "form">
-        <div id="al-login-link" class="al-link-sent"
+        <div id="al-login-link" class="al-link-sent<#if loginLinkSent.denied> al-ended</#if>"
              data-status-url="${loginLinkSent.statusUrl}"
              data-code-length="${loginLinkSent.codeLength?c}"
              data-expires-in="${loginLinkSent.expiresInSeconds?c}">
@@ -23,15 +23,26 @@
                         ${msg("loginLinkSentToAccount")} ${msg("loginLinkSentValid", minutes?c)}
                     </#if>
                 </p>
-                <p class="al-text al-muted">${msg("loginLinkSentHint")}</p>
             </div>
 
-            <div id="al-login-link-status" class="al-status" role="status" aria-live="polite" data-state="waiting"
+            <#if loginLinkSent.matchNumber?has_content>
+                <div class="al-match" aria-describedby="al-match-hint">
+                    <span class="al-match-label">${msg("loginLinkMatchLabel")}</span>
+                    <span id="al-match-number" class="al-match-number">${loginLinkSent.matchNumber}</span>
+                    <span id="al-match-hint" class="al-match-hint">${msg("loginLinkMatchHint")}</span>
+                </div>
+            <#else>
+                <p class="al-text al-muted al-center">${msg("loginLinkSentHint")}</p>
+            </#if>
+
+            <div id="al-login-link-status" class="al-status" role="status" aria-live="polite"
+                 data-state="${loginLinkSent.denied?then('denied', 'waiting')}"
                  data-text-waiting="${msg("loginLinkWaiting")}"
                  data-text-confirmed="${msg("loginLinkConfirmedHere")}"
-                 data-text-expired="${msg("loginLinkExpiredHere")}">
+                 data-text-expired="${msg("loginLinkExpiredHere")}"
+                 data-text-denied="${msg("loginLinkDeniedHere")}">
                 <span class="al-status-dot" aria-hidden="true"></span>
-                <span class="al-status-text">${msg("loginLinkWaiting")}</span>
+                <span class="al-status-text">${loginLinkSent.denied?then(msg("loginLinkDeniedHere"), msg("loginLinkWaiting"))}</span>
             </div>
 
             <div class="al-divider"><span>${msg("loginLinkOrCode")}</span></div>

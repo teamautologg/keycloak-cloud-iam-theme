@@ -1,5 +1,7 @@
 package at.autologg.keycloak.loginlink;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -16,10 +18,12 @@ import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.authenticators.browser.AbstractUsernameFormAuthenticator;
 import org.keycloak.authentication.authenticators.util.AuthenticatorUtils;
 import org.keycloak.common.util.Time;
+import org.keycloak.credential.CredentialModel;
 import org.keycloak.email.EmailException;
 import org.keycloak.email.EmailTemplateProvider;
 import org.keycloak.events.Errors;
 import org.keycloak.forms.login.LoginFormsProvider;
+import org.keycloak.models.FederatedIdentityModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.ModelDuplicateException;
 import org.keycloak.models.RealmModel;
@@ -27,6 +31,8 @@ import org.keycloak.models.SingleUseObjectProvider;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.utils.FormMessage;
 import org.keycloak.models.utils.KeycloakModelUtils;
+import org.keycloak.models.UserSessionModel;
+import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
 /**
@@ -151,6 +157,12 @@ final class LoginLinkFlow {
             throttled(typed, now, "loginLinkTooManyRequests");
             return;
         }
+        String ip = publicClientAddress();
+        if (ip != null && countThisHour(store, LoginLink.ipKey(realm.getId(), LoginLinkSecrets.addressKey("ip:" + ip), now / 3600))
+                > config.maxSendsPerIpPerHour) {
+            throttled(typed, now, "loginLinkTooManyRequestsNetwork");
+            return;
+        }
 
         UserModel user = knownUser != null ? knownUser : findUser(session, realm, typed);
         String refusal = refusal(session, realm, user);
@@ -165,6 +177,9 @@ final class LoginLinkFlow {
         authSession.setAuthNote(LoginLink.NOTE_ATTEMPTS, "0");
         authSession.setAuthNote(LoginLink.NOTE_CODE_HASH, LoginLinkSecrets.sha256(code));
         authSession.removeAuthNote(LoginLink.NOTE_TOKEN_HASH);
+        authSession.removeAuthNote(LoginLink.NOTE_DENIED);
+        String match = LoginLinkSecrets.newMatchNumber();
+        authSession.setAuthNote(LoginLink.NOTE_MATCH, match);
         if (knownUser == null && !typed.isEmpty()) {
             // As the password form does: lets brute force protection attribute wrong codes to the account.
             authSession.setAuthNote(AbstractUsernameFormAuthenticator.ATTEMPTED_USERNAME, typed);
@@ -197,6 +212,8 @@ final class LoginLinkFlow {
         if (operatingSystem != null) {
             link.put(LoginLink.LINK_OS, operatingSystem);
         }
+        link.put(LoginLink.LINK_MATCH, match);
+        link.put(LoginLink.LINK_CHOICES, String.join(",", LoginLinkSecrets.matchChoices(match)));
         store.put(LoginLink.linkKey(tokenHash), ttl, link);
         authSession.setAuthNote(LoginLink.NOTE_USER, user.getId());
         authSession.setAuthNote(LoginLink.NOTE_TOKEN_HASH, tokenHash);
@@ -290,7 +307,7 @@ final class LoginLinkFlow {
         dropLink(context.getSession().singleUseObjects(), authSession);
         for (String note : List.of(LoginLink.NOTE_STATE, LoginLink.NOTE_USER, LoginLink.NOTE_IDENTIFIER,
                 LoginLink.NOTE_CODE_HASH, LoginLink.NOTE_EXPIRES_AT, LoginLink.NOTE_ATTEMPTS,
-                LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH)) {
+                LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_MATCH, LoginLink.NOTE_DENIED)) {
             authSession.removeAuthNote(note);
         }
     }
@@ -303,6 +320,7 @@ final class LoginLinkFlow {
         }
         clear();
         if (config.markEmailVerified && !user.isEmailVerified()) {
+            removeSetupBeforeVerification(user);
             user.setEmailVerified(true);
             user.removeRequiredAction(UserModel.RequiredAction.VERIFY_EMAIL);
         }
@@ -314,6 +332,32 @@ final class LoginLinkFlow {
         context.success();
     }
 
+    /**
+     * Account pre-hijacking: someone may have registered the address before its owner, with their
+     * own password, OTP, passkey or identity provider, waiting for the owner to verify it. The link
+     * proves the mailbox for the first time, so nothing set up before survives, and no session either.
+     */
+    private void removeSetupBeforeVerification(UserModel user) {
+        KeycloakSession session = context.getSession();
+        RealmModel realm = context.getRealm();
+        List<CredentialModel> credentials = user.credentialManager().getStoredCredentialsStream().toList();
+        credentials.forEach(credential -> user.credentialManager().removeStoredCredentialById(credential.getId()));
+        List<String> providers = session.users().getFederatedIdentitiesStream(realm, user)
+                .map(FederatedIdentityModel::getIdentityProvider).toList();
+        providers.forEach(alias -> session.users().removeFederatedIdentity(realm, user, alias));
+        List<UserSessionModel> sessions = session.sessions().getUserSessionsStream(realm, user).toList();
+        sessions.forEach(userSession -> AuthenticationManager.backchannelLogout(session, userSession, false));
+        List<UserSessionModel> offline = session.sessions().getOfflineUserSessionsStream(realm, user).toList();
+        offline.forEach(userSession -> session.sessions().removeOfflineUserSession(realm, userSession));
+        if (!credentials.isEmpty() || !providers.isEmpty() || !sessions.isEmpty() || !offline.isEmpty()) {
+            String removed = credentials.size() + " credentials, " + providers.size() + " identity provider links, "
+                    + (sessions.size() + offline.size()) + " sessions";
+            context.getEvent().detail(LoginLink.EVENT_DETAIL_RESET, removed);
+            LOG.infof("Login link verified the e-mail of user %s in realm %s for the first time; removed %s",
+                    user.getId(), realm.getName(), removed);
+        }
+    }
+
     /** First e-mail of this session refused by a limit: show the waiting page with the reason, keep what was sent. */
     private void throttled(String typed, long now, String message) {
         AuthenticationSessionModel authSession = context.getAuthenticationSession();
@@ -323,6 +367,7 @@ final class LoginLinkFlow {
             authSession.setAuthNote(LoginLink.NOTE_USER, "");
             authSession.setAuthNote(LoginLink.NOTE_EXPIRES_AT, String.valueOf(now + ttlSeconds(context.getRealm())));
             authSession.setAuthNote(LoginLink.NOTE_ATTEMPTS, "0");
+            authSession.setAuthNote(LoginLink.NOTE_MATCH, LoginLinkSecrets.newMatchNumber());
         }
         authSession.setAuthNote(LoginLink.NOTE_SENT_AT, String.valueOf(now));
         context.challenge(waitingPage(null, message, null));
@@ -347,7 +392,8 @@ final class LoginLinkFlow {
 
         LoginFormsProvider form = context.form();
         form.setAttribute(LoginLink.ATTR_SENT,
-                new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, back));
+                new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, back,
+                        note(LoginLink.NOTE_MATCH), note(LoginLink.NOTE_DENIED) != null));
         if (fieldError != null) {
             form.addError(fieldError);
         } else if (error != null) {
@@ -431,9 +477,38 @@ final class LoginLinkFlow {
                 : context.getSession().users().getUserById(context.getRealm(), userId);
     }
 
+    /** Expired, or the recipient refused it on the confirm page. */
     private boolean isExpired() {
         Long expiresAt = longNote(LoginLink.NOTE_EXPIRES_AT);
-        return expiresAt == null || Time.currentTimeSeconds() > expiresAt;
+        return expiresAt == null || Time.currentTimeSeconds() > expiresAt || note(LoginLink.NOTE_DENIED) != null;
+    }
+
+    /**
+     * The client's address when it is a public one. Behind a proxy that does not forward the
+     * client address Keycloak sees the proxy's private address; limiting that would limit everyone.
+     */
+    private String publicClientAddress() {
+        String address = context.getConnection() == null ? null : context.getConnection().getRemoteAddr();
+        if (address == null || !address.matches("[0-9A-Fa-f:.]+")) {
+            return null;
+        }
+        try {
+            InetAddress inet = InetAddress.getByName(address);
+            byte[] raw = inet.getAddress();
+            boolean uniqueLocalV6 = raw.length == 16 && (raw[0] & 0xfe) == 0xfc;
+            if (inet.isLoopbackAddress() || inet.isSiteLocalAddress() || inet.isLinkLocalAddress()
+                    || inet.isAnyLocalAddress() || uniqueLocalV6) {
+                if (!PRIVATE_ADDRESS_LOGGED) {
+                    PRIVATE_ADDRESS_LOGGED = true;
+                    LOG.infof("Login link: client address %s is private (proxy without forwarded headers?); "
+                            + "the per-IP limit does not apply to it", address);
+                }
+                return null;
+            }
+            return inet.getHostAddress();
+        } catch (UnknownHostException e) {
+            return null;
+        }
     }
 
     /** Link and code of the login TTL, capped by the realm's login timeout so the waiting session outlives them. */
@@ -445,6 +520,8 @@ final class LoginLinkFlow {
         }
         return Math.max(60, ttl);
     }
+
+    private static volatile boolean PRIVATE_ADDRESS_LOGGED;
 
     private static void dropLink(SingleUseObjectProvider store, AuthenticationSessionModel authSession) {
         String tokenHash = authSession.getAuthNote(LoginLink.NOTE_TOKEN_HASH);

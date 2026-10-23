@@ -14,15 +14,29 @@ public class LoginLinkSentBean {
     private final long expiresInSeconds;
     private final long resendAvailableInSeconds;
     private final String back;
+    private final String matchNumber;
+    private final boolean denied;
 
     LoginLinkSentBean(String identifier, String statusUrl, int codeLength, long expiresInSeconds,
-                      long resendAvailableInSeconds, String back) {
+                      long resendAvailableInSeconds, String back, String matchNumber, boolean denied) {
         this.identifier = identifier;
         this.statusUrl = statusUrl;
         this.codeLength = codeLength;
         this.expiresInSeconds = expiresInSeconds;
         this.resendAvailableInSeconds = resendAvailableInSeconds;
         this.back = back;
+        this.matchNumber = matchNumber;
+        this.denied = denied;
+    }
+
+    /** Number to pick on the page the link opens; empty for waiting pages from before it existed. */
+    public String getMatchNumber() {
+        return matchNumber == null ? "" : matchNumber;
+    }
+
+    /** The recipient refused the login on the confirm page. */
+    public boolean isDenied() {
+        return denied;
     }
 
     /** The address as the user typed it; empty when they signed in with a username. */

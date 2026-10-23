@@ -4,8 +4,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -31,6 +34,24 @@ final class LoginLinkSecrets {
             code.append(RANDOM.nextInt(10));
         }
         return code.toString();
+    }
+
+    /** Two-digit number for matching the waiting page with the confirm page. */
+    static String newMatchNumber() {
+        return String.valueOf(10 + RANDOM.nextInt(90));
+    }
+
+    /** The number and two different two-digit decoys, shuffled. */
+    static List<String> matchChoices(String number) {
+        List<String> choices = new ArrayList<>(List.of(number));
+        while (choices.size() < 3) {
+            String decoy = newMatchNumber();
+            if (!choices.contains(decoy)) {
+                choices.add(decoy);
+            }
+        }
+        Collections.shuffle(choices, RANDOM);
+        return choices;
     }
 
     static boolean isWellFormedToken(String token) {

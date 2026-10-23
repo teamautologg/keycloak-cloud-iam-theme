@@ -7,6 +7,8 @@
             ${msg("loginLinkConfirmTitle")}
         <#elseif loginLinkConfirm.state == "done">
             ${msg("loginLinkConfirmedTitle")}
+        <#elseif loginLinkConfirm.state == "denied">
+            ${msg("loginLinkDeniedTitle")}
         <#else>
             ${msg("loginLinkInvalidTitle")}
         </#if>
@@ -34,14 +36,31 @@
                     </dd>
                 </div>
             </dl>
-            <form id="kc-login-link-confirm-form" class="${properties.kcFormClass!}" action="${loginLinkConfirm.actionUrl}" method="post"
-                  onsubmit="this.querySelector('button').disabled = true; return true;">
+            <#if loginLinkConfirm.choices?has_content>
+                <form id="kc-login-link-confirm-form" class="${properties.kcFormClass!}" action="${loginLinkConfirm.actionUrl}" method="post">
+                    <input type="hidden" name="key" value="${loginLinkConfirm.key}"/>
+                    <p class="al-text al-match-question" id="al-match-question">${msg("loginLinkMatchQuestion")}</p>
+                    <div class="al-match-choices" role="group" aria-labelledby="al-match-question">
+                        <#list loginLinkConfirm.choices as choice>
+                            <button type="submit" class="al-match-choice" name="${loginLinkConfirm.matchParameter}" value="${choice}">${choice}</button>
+                        </#list>
+                    </div>
+                    <p class="al-help">${msg("loginLinkMatchWrongHint")}</p>
+                </form>
+            <#else>
+                <form id="kc-login-link-confirm-form" class="${properties.kcFormClass!}" action="${loginLinkConfirm.actionUrl}" method="post"
+                      onsubmit="this.querySelector('button').disabled = true; return true;">
+                    <input type="hidden" name="key" value="${loginLinkConfirm.key}"/>
+                    <@buttons.actionGroup>
+                        <@buttons.button id="kc-login-link-confirm" name="confirm" label="loginLinkConfirmButton" />
+                    </@buttons.actionGroup>
+                </form>
+            </#if>
+            <div class="al-separator"></div>
+            <form id="kc-login-link-deny-form" action="${loginLinkConfirm.actionUrl}" method="post">
                 <input type="hidden" name="key" value="${loginLinkConfirm.key}"/>
-                <@buttons.actionGroup>
-                    <@buttons.button id="kc-login-link-confirm" name="confirm" label="loginLinkConfirmButton" />
-                </@buttons.actionGroup>
+                <button type="submit" class="al-ghost-button al-ghost-danger" name="${loginLinkConfirm.denyParameter}" value="1">${msg("loginLinkDenyButton")}</button>
             </form>
-            <p class="al-text al-muted">${msg("loginLinkConfirmNotYou")}</p>
         <#elseif loginLinkConfirm.state == "done">
             <div class="al-link-hero">
                 <span class="al-link-hero-icon al-success" aria-hidden="true">
@@ -49,6 +68,14 @@
                 </span>
                 <p class="al-text">${msg("loginLinkConfirmedText")}</p>
                 <p class="al-text al-muted">${msg("loginLinkConfirmedHint")}</p>
+            </div>
+        <#elseif loginLinkConfirm.state == "denied">
+            <div class="al-link-hero">
+                <span class="al-link-hero-icon al-warning" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3zM9.5 9.5l5 5M14.5 9.5l-5 5"/></svg>
+                </span>
+                <p class="al-text">${msg(loginLinkConfirm.reason)}</p>
+                <p class="al-text al-muted">${msg("loginLinkDeniedHint")}</p>
             </div>
         <#else>
             <div class="al-link-hero">

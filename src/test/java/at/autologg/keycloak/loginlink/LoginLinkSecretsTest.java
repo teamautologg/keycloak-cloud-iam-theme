@@ -73,4 +73,17 @@ class LoginLinkSecretsTest {
         assertEquals("ma•••••••••••@example.org", LoginLinkSecrets.maskEmail("maxmustermann@example.org"));
         assertEquals("", LoginLinkSecrets.maskEmail(null));
     }
+
+    @Test
+    void matchChoicesHoldTheNumberAndTwoDifferentDecoys() {
+        for (int i = 0; i < 200; i++) {
+            String number = LoginLinkSecrets.newMatchNumber();
+            assertTrue(number.matches("[1-9][0-9]"), number);
+            java.util.List<String> choices = LoginLinkSecrets.matchChoices(number);
+            assertEquals(3, choices.size());
+            assertEquals(3, new java.util.HashSet<>(choices).size());
+            assertTrue(choices.contains(number));
+            assertTrue(choices.stream().allMatch(c -> c.matches("[1-9][0-9]")));
+        }
+    }
 }

@@ -29,9 +29,12 @@ The login always finishes in the window that started it. The app needs exactly t
 runs in a popup (web) or an in-app browser sheet (iOS/Android), while a link tapped in the mail app
 opens in a different browser. The browser that confirms is not logged in.
 
-Opening the link does nothing by itself; *Ja, anmelden* is a POST. Mail scanners that open links
-in advance (Defender Safe Links etc.) can therefore not complete a login someone else started, and
-the confirm page shows when and from which browser the login was requested.
+Opening the link does nothing by itself; confirming is a POST. Mail scanners that open links in
+advance (Defender Safe Links etc.) can therefore not complete a login someone else started. The
+confirm page shows when and from which browser the login was requested and asks for the two-digit
+number the waiting page shows (number matching, as in Microsoft Authenticator), among two decoys:
+someone who starts a login with another person's address cannot get it confirmed by a careless tap.
+A wrong number or *Das war ich nicht* ends that login; the waiting page says so.
 
 ### Providers
 
@@ -55,12 +58,17 @@ grant flow) and the registration form are separate.
   waiting login. A new e-mail voids the previous link and code.
 - Code: 6 digits; 5 wrong codes per e-mail, at most 20 wrong codes per user and hour. Wrong codes
   count for the realm's brute force protection like wrong passwords.
-- E-mails: at most one per address every 30 seconds and 10 per hour.
+- E-mails: at most one per address every 30 seconds and 10 per hour, and at most 30 requests per
+  public IP address and hour across all addresses (private addresses - a proxy without forwarded
+  headers - are not limited; Keycloak logs that once).
 - Unknown addresses, disabled or locked users, users without e-mail and users of excluded identity
   providers get no e-mail. The page looks the same, so it does not tell which addresses have an
   account (sending makes the response slower, as with Keycloak's password reset).
 - A login through the e-mail proves the address: it is marked verified and a pending
-  *Verify Email* action is dropped. A pending *Update Password* action is dropped as well - the
+  *Verify Email* action is dropped. If the address was not verified before, everything set up on
+  the account until then is removed - passwords, OTP, passkeys, identity provider links - and all
+  its sessions end (account pre-hijacking: someone registered the address before its owner and
+  waits for them to verify it). The LOGIN event then carries `login_link_reset`. A pending *Update Password* action is dropped as well - the
   login needed no password; a password login still asks for the new one.
 - The LOGIN event carries `login_link=link` or `login_link=code`.
 
@@ -75,9 +83,11 @@ Optional, on the execution (Authentication -> flow -> gear icon). Without a conf
 | `maxCodeAttempts` | 5 | wrong codes per e-mail |
 | `resendCooldownSeconds` | 30 | minimum time between two e-mails to one address |
 | `maxSendsPerHour` | 10 | e-mails per address and hour |
+| `maxSendsPerIpPerHour` | 30 | e-mail requests per public IP address and hour |
 | `excludedIdentityProviders` | - | IdP aliases whose users keep signing in through the IdP (e.g. company Entra ID tenants) |
 | `markEmailVerified` | true | mark the address verified after a login through the e-mail |
 | `passwordLogin` | true | `false`: the pages ask for the address only and send the link; the form accepts no password (passkeys still work) |
+| `emailFirst` | true | Username Password Form: page one asks for the address, page two offers link or password |
 
 ### Rollout per realm
 
