@@ -1,0 +1,69 @@
+{
+  "realm": "autologg-dev",
+  "enabled": true,
+  "displayName": "AutoLogg Dev",
+  "loginTheme": "autologg",
+  "emailTheme": "autologg",
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "de",
+    "en"
+  ],
+  "defaultLocale": "de",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "bruteForceProtected": true,
+  "failureFactor": 30,
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "noreply@autologg.local",
+    "fromDisplayName": "AutoLogg"
+  },
+  "users": [
+    {
+      "username": "test@autologg.local",
+      "email": "test@autologg.local",
+      "firstName": "Test",
+      "lastName": "NUTZER",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Test1234!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-autologg-dev"
+      ]
+    },
+    {
+      "username": "ohnepasswort@autologg.local",
+      "email": "ohnepasswort@autologg.local",
+      "firstName": "Ohne",
+      "lastName": "PASSWORT",
+      "enabled": true,
+      "emailVerified": false,
+      "requiredActions": [
+        "VERIFY_EMAIL"
+      ],
+      "realmRoles": [
+        "default-roles-autologg-dev"
+      ]
+    }
+  ],
+  "eventsEnabled": true,
+  "enabledEventTypes": [
+    "LOGIN",
+    "LOGIN_ERROR",
+    "SEND_RESET_PASSWORD",
+    "UPDATE_PASSWORD"
+  ]
+}
