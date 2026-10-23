@@ -60,11 +60,11 @@
             <link href="${url.resourcesCommonPath}/${style}" rel="stylesheet" />
         </#list>
     </#if>
-    <#if themeResources?? && themeResources.styles?has_content>
-        <@themeResourceTags.renderStyles themeResources.styles url.resourcesPath />
-    <#elseif properties.styles?has_content>
+    <#-- Cloud-IAM's nginx caches /resources/<version>/ for 30 days and the version stays the same
+         across extension uploads; the build number in the URL makes every upload fetch fresh files. -->
+    <#if properties.styles?has_content>
         <#list properties.styles?split(' ') as style>
-            <link href="${url.resourcesPath}/${style}" rel="stylesheet" />
+            <link href="${url.resourcesPath}/${style}?v=${properties.assetVersion!''}" rel="stylesheet" />
         </#list>
     </#if>
     <script type="importmap">

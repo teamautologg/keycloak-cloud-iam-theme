@@ -65,6 +65,23 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>theme/autologg/login/theme.properties</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <!-- assetVersion=${project.version} in the login theme -->
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>theme/autologg/login/theme.properties</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

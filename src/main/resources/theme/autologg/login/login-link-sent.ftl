@@ -77,6 +77,6 @@
                 </#if>
             </div>
         </div>
-        <script type="module" src="${url.resourcesPath}/js/login-link.js"></script>
+        <script type="module" src="${url.resourcesPath}/js/login-link.js?v=${properties.assetVersion!''}"></script>
     </#if>
 </@layout.registrationLayout>
