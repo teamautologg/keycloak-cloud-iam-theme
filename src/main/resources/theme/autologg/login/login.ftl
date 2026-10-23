@@ -61,7 +61,8 @@
                 <#if passwordShown>
                     <div class="al-divider"><span>${msg("loginLinkOr")}</span></div>
                     <form id="kc-form-login" class="${properties.kcFormClass!}" onsubmit="if (this.login) { this.login.disabled = true; } return true;" action="${url.loginAction}" method="post" novalidate="novalidate">
-                        <input type="hidden" name="username" value="${loginLink.address}"/>
+                        <#-- Hidden but not type=hidden: password managers pair the password with this address. -->
+                        <input type="email" name="username" value="${loginLink.address}" autocomplete="username" readonly hidden/>
                         <@field.password name="password" label=msg("password") error=messagesPerField.getFirstError('username','password') forgotPassword=realm.resetPasswordAllowed autocomplete="current-password">
                             <#if realm.rememberMe>
                                 <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
