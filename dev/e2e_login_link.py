@@ -701,18 +701,30 @@ def run_setup_script(realm, *options):
                           capture_output=True, text=True, encoding="utf-8")
 
 
-def otp_requirement(realm):
-    """Requirement of the bound browser flow's subflow that holds the OTP Form."""
-    flow = admin_call(realm, "GET", "")["browserFlow"]
+def conditional_requirement(realm, flow, provider):
+    """Requirement of the flow's subflow that holds `provider` next to "Condition - user configured"."""
     executions = admin_call(realm, "GET", f"/authentication/flows/{urllib.parse.quote(flow, safe='')}/executions")
     for i, e in enumerate(executions):
         if e.get("authenticationFlow"):
+            children = set()
             for child in executions[i + 1:]:
                 if child["level"] <= e["level"]:
                     break
-                if child["level"] == e["level"] + 1 and child.get("providerId") == "auth-otp-form":
-                    return e["requirement"]
+                if child["level"] == e["level"] + 1:
+                    children.add(child.get("providerId"))
+            if {provider, "conditional-user-configured"} <= children:
+                return e["requirement"]
     return None
+
+
+def otp_requirement(realm, flow=None):
+    """The conditional OTP step of the flow, by default the bound browser flow."""
+    return conditional_requirement(realm, flow or admin_call(realm, "GET", "")["browserFlow"], "auth-otp-form")
+
+
+def reset_otp_requirement(realm):
+    """The step of the bound reset-credentials flow that removes the authenticator on a password reset."""
+    return conditional_requirement(realm, admin_call(realm, "GET", "")["resetCredentialsFlow"], "reset-otp")
 
 
 def totp(secret, at=None):
@@ -735,6 +747,8 @@ def two_factor(realm, identifier_first, organization=False):
     check(out.returncode == 0 and otp_requirement(realm) == "DISABLED", "setup script --otp-step off: OTP step disabled")
     out = run_setup_script(realm, "--otp-step", "on", "--apply", "--yes")
     check(out.returncode == 0 and otp_requirement(realm) == "CONDITIONAL", "--otp-step on: OTP step conditional")
+    check(reset_otp_requirement(realm) == "DISABLED",
+          "and a password reset by e-mail no longer removes the authenticator")
     if out.returncode != 0:
         print(out.stdout[-800:], out.stderr[-800:])
     address = "zweifaktor@autologg.local"
@@ -788,6 +802,50 @@ def two_factor(realm, identifier_first, organization=False):
         delete_users(realm, address)
         if before and before != "CONDITIONAL":
             run_setup_script(realm, "--otp-step", "off", "--apply", "--yes")
+
+
+def setup_script_copy(identifier_first, organization=False):
+    print("\n[19] setup script on a realm without the forms (the way prod will go)")
+    if identifier_first or organization:
+        return  # once is enough; it runs on a fresh copy of the dev realm
+    realm = "autologg-dev-copy"
+    call = admin_caller(admin_token())
+
+    def drop_realm():
+        try:
+            admin_caller(admin_token())("DELETE", f"/{realm}")
+        except urllib.error.HTTPError:
+            pass  # not there
+
+    drop_realm()
+    copy_dev_realm(call, realm, "AutoLogg Dev (Setup-Kopie)")
+    try:
+        admin_call(realm, "POST", "/roles", {"name": "microsoft-login-only"})
+        original = admin_call(realm, "GET", "")["browserFlow"]
+        out = run_setup_script(realm, "--otp-step", "off", "--apply", "--yes")
+        bound = admin_call(realm, "GET", "")["browserFlow"]
+        check(out.returncode == 0 and bound == f"{original} with login link", f"copy bound ({bound!r})")
+        check(otp_requirement(realm) == "DISABLED" and otp_requirement(realm, original) == "CONDITIONAL",
+              "--otp-step off set in the copy before binding; the original flow is untouched")
+        check(reset_otp_requirement(realm) == "CONDITIONAL", "off leaves the reset flow as it was")
+        flow = admin_call(realm, "GET", f"/authentication/flows/{urllib.parse.quote(bound, safe='')}/executions")
+        ours = next(e for e in flow if (e.get("providerId") or "").startswith("autologg-"))
+        cfg = admin_call(realm, "GET", f"/authentication/config/{ours['authenticationConfig']}")["config"]
+        check(cfg.get("excludedRoles") == "microsoft-login-only", "role microsoft-login-only excluded automatically")
+
+        rep = admin_call(realm, "GET", f"/authentication/config/{ours['authenticationConfig']}")
+        rep["config"]["excludedRoles"] = "andere-rolle"
+        admin_call(realm, "PUT", f"/authentication/config/{ours['authenticationConfig']}", rep)
+        out = run_setup_script(realm, "--otp-step", "on", "--apply", "--yes")
+        cfg = admin_call(realm, "GET", f"/authentication/config/{ours['authenticationConfig']}")["config"]
+        check(out.returncode == 0 and otp_requirement(realm) == "CONDITIONAL" and reset_otp_requirement(realm) == "DISABLED",
+              "--otp-step on on the forms: OTP step conditional, reset keeps the authenticator")
+        check(cfg.get("excludedRoles") == "andere-rolle,microsoft-login-only",
+              f"excludedRoles extended, not replaced ({cfg.get('excludedRoles')!r})")
+        if out.returncode != 0:
+            print(out.stdout[-800:], out.stderr[-800:])
+    finally:
+        drop_realm()
 
 
 def admin_call(realm, method, path, body=None):
@@ -1065,6 +1123,7 @@ def main():
     exclusions(realm, args.identifier_first, args.organization)
     registration_cap(realm, args.identifier_first, args.organization)
     two_factor(realm, args.identifier_first, args.organization)
+    setup_script_copy(args.identifier_first, args.organization)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
 
