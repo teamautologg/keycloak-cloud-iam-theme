@@ -21,6 +21,7 @@ public class LoginLinkConfirmBean {
     private final String operatingSystem;
     private final String reason;
     private boolean register;
+    private boolean termsMissing;
 
     private LoginLinkConfirmBean(String state, String actionUrl, String key, String email, long minutesAgo,
                                  String browser, String operatingSystem, String reason) {
@@ -93,6 +94,20 @@ public class LoginLinkConfirmBean {
     LoginLinkConfirmBean registering(boolean value) {
         this.register = value;
         return this;
+    }
+
+    /** Posted "create account" without ticking the terms box. */
+    public boolean isTermsMissing() {
+        return termsMissing;
+    }
+
+    LoginLinkConfirmBean withTermsMissing() {
+        this.termsMissing = true;
+        return this;
+    }
+
+    public String getTermsParameter() {
+        return LoginLink.CONFIRM_TERMS;
     }
 
     public String getDenyParameter() {

@@ -100,6 +100,10 @@ final class LoginLinkFlow {
     }
 
     void showWaitingPage() {
+        if (note(LoginLink.NOTE_REGISTER_VERIFIED) != null) {
+            context.challenge(termsPage(false));
+            return;
+        }
         context.challenge(waitingPage(null, null, null));
     }
 
@@ -113,8 +117,13 @@ final class LoginLinkFlow {
         boolean check = form.containsKey(LoginLink.FORM_CHECK);
         boolean resend = form.containsKey(LoginLink.FORM_RESEND);
         boolean cancel = form.containsKey(LoginLink.FORM_CANCEL);
-        if (!code && !check && !resend && !cancel) {
+        boolean terms = form.containsKey(LoginLink.FORM_TERMS);
+        if (!code && !check && !resend && !cancel && !terms) {
             return false;
+        }
+        if (terms && !cancel && isWaiting()) {
+            acceptTermsAndRegister(form);
+            return true;
         }
         if (cancel || !isWaiting()) {
             clear();
@@ -292,7 +301,9 @@ final class LoginLinkFlow {
         }
         String register = note(LoginLink.NOTE_REGISTER);
         if (user == null && register != null && LoginLinkSecrets.matchesHash(note(LoginLink.NOTE_CODE_HASH), code)) {
-            succeedRegistration(register, "code");
+            // The mailbox is proven; the terms come before the account.
+            authSession.setAuthNote(LoginLink.NOTE_REGISTER_VERIFIED, "code");
+            context.challenge(termsPage(false));
             return;
         }
 
@@ -314,7 +325,9 @@ final class LoginLinkFlow {
                 .remove(LoginLink.confirmedKey(authSession.getParentSession().getId(), authSession.getTabId()));
         String register = note(LoginLink.NOTE_REGISTER);
         if (confirmation != null && register != null && register.equals(confirmation.get(LoginLink.CONFIRMED_REGISTER))) {
-            succeedRegistration(register, "link");
+            // The confirm page took the terms before it confirmed.
+            String acceptedAt = confirmation.get(LoginLink.CONFIRMED_TERMS);
+            succeedRegistration(register, "link", acceptedAt != null ? acceptedAt : String.valueOf(Time.currentTimeSeconds()));
             return;
         }
         String userId = note(LoginLink.NOTE_USER);
@@ -338,7 +351,7 @@ final class LoginLinkFlow {
         for (String note : List.of(LoginLink.NOTE_STATE, LoginLink.NOTE_USER, LoginLink.NOTE_IDENTIFIER,
                 LoginLink.NOTE_CODE_HASH, LoginLink.NOTE_EXPIRES_AT, LoginLink.NOTE_ATTEMPTS,
                 LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_DENIED,
-                LoginLink.NOTE_REGISTER)) {
+                LoginLink.NOTE_REGISTER, LoginLink.NOTE_REGISTER_VERIFIED)) {
             authSession.removeAuthNote(note);
         }
     }
@@ -369,7 +382,27 @@ final class LoginLinkFlow {
      * no password, and asks for the name next. If the address got an account in the meantime (e.g.
      * through Google), the link proves the mailbox and logs into that one.
      */
-    private void succeedRegistration(String address, String method) {
+    /** Terms page after the right code: the box ticked creates the account, else the page again. */
+    private void acceptTermsAndRegister(MultivaluedMap<String, String> form) {
+        String register = note(LoginLink.NOTE_REGISTER);
+        if (register == null || note(LoginLink.NOTE_REGISTER_VERIFIED) == null) {
+            context.challenge(waitingPage(null, null, null));
+            return;
+        }
+        if (!"on".equals(form.getFirst(LoginLink.CONFIRM_TERMS))) {
+            context.challenge(termsPage(true));
+            return;
+        }
+        succeedRegistration(register, note(LoginLink.NOTE_REGISTER_VERIFIED), String.valueOf(Time.currentTimeSeconds()));
+    }
+
+    private Response termsPage(boolean termsMissing) {
+        LoginFormsProvider form = context.form();
+        form.setAttribute(LoginLink.ATTR_TERMS, new LoginLinkTermsBean(note(LoginLink.NOTE_REGISTER), termsMissing));
+        return form.createForm(LoginLink.TEMPLATE_TERMS);
+    }
+
+    private void succeedRegistration(String address, String method, String termsAcceptedAt) {
         KeycloakSession session = context.getSession();
         RealmModel realm = context.getRealm();
         UserModel existing = findUser(session, realm, address);
@@ -399,12 +432,18 @@ final class LoginLinkFlow {
         user.setEmail(address);
         user.setEmailVerified(true);
         user.removeRequiredAction(UserModel.RequiredAction.VERIFY_EMAIL);
-        // First and last name, as the registration form asks for them.
-        user.addRequiredAction(UserModel.RequiredAction.UPDATE_PROFILE);
+        // No name form: taken from the address, corrected in the app, which writes it back to Keycloak.
+        LoginLinkNames.Name name = LoginLinkNames.fromEmail(address);
+        user.setFirstName(name.first());
+        user.setLastName(name.last());
+        // Accepted before the account was created: on the confirm page or the terms page.
+        user.setSingleAttribute(LoginLink.TERMS_ATTRIBUTE, termsAcceptedAt);
+        user.removeRequiredAction(UserModel.RequiredAction.TERMS_AND_CONDITIONS);
         context.getEvent().clone().event(EventType.REGISTER).user(user)
                 .detail(Details.USERNAME, address)
                 .detail(Details.EMAIL, address)
                 .detail(Details.REGISTER_METHOD, LoginLink.REGISTER_METHOD)
+                .detail(LoginLink.TERMS_ATTRIBUTE, termsAcceptedAt)
                 .success();
         LOG.infof("Login link created user %s in realm %s", user.getId(), realm.getName());
         succeed(user, method);

@@ -471,7 +471,7 @@ def ip_limit(realm, identifier_first):
         check("aus diesem Netzwerk" in third.html, "third request from the same IP is refused with a message")
         time.sleep(2)
         check(not mails_to(USER_WITH_PASSWORD[0]), "and sends nothing")
-        from_ip(USER_WITH_PASSWORD[0], "198.51.100.9" if not ip.endswith(".9") else "198.51.100.10")
+        from_ip(USER_WITH_PASSWORD[0], f"198.51.100.{secrets.randbelow(250) + 1}")  # TEST-NET-2, fresh each run
         check(latest_mail(USER_WITH_PASSWORD[0])[0] is not None, "another IP still gets its e-mail")
     finally:
         admin_call(realm, "PUT", "", {"sslRequired": ssl_required})
@@ -520,6 +520,28 @@ def finish_profile(browser, page, first="Neu", last="KONTO"):
     return True
 
 
+def terms_stored(realm, user):
+    """terms_and_conditions on the account: admin API, else (the organization realm hides unmanaged
+    attributes there) the local docker-compose database."""
+    if (user.get("attributes") or {}).get("terms_and_conditions"):
+        return True
+    try:
+        rows = subprocess.run(["docker", "exec", "al5388-keycloak-db-1", "psql", "-U", "admin", "-d", "keycloak", "-tAc",
+                               "select count(*) from user_attribute where name = 'terms_and_conditions' "
+                               f"and user_id = '{user['id']}'"], capture_output=True, text=True, timeout=30).stdout.strip()
+        return rows == "1"
+    except Exception:
+        return False
+
+
+def show_unmanaged_attributes(realm):
+    """terms_and_conditions is no user profile attribute: let the admin API show it (test realm only)."""
+    profile = admin_call(realm, "GET", "/users/profile")
+    if profile.get("unmanagedAttributePolicy") not in ("ADMIN_VIEW", "ADMIN_EDIT", "ENABLED"):
+        profile["unmanagedAttributePolicy"] = "ADMIN_VIEW"
+        admin_call(realm, "PUT", "/users/profile", profile)
+
+
 def delete_users(realm, address):
     for user in admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true") or []:
         admin_call(realm, "DELETE", f"/users/{user['id']}")
@@ -544,7 +566,8 @@ def link_only(realm, identifier_first, organization=False):
             return  # its Username Form stops unknown addresses before us: no registration there
 
         print("\n[15] registration through the link")
-        address = f"neu-{secrets.token_hex(3)}@autologg.local"
+        show_unmanaged_attributes(realm)
+        address = f"max.neu+{secrets.token_hex(3)}@autologg.local"
         clear_mails()
         desk = Browser("desk", DESKTOP_UA)
         page = send_link(desk, realm, address, two_step)
@@ -556,16 +579,27 @@ def link_only(realm, identifier_first, organization=False):
         link, _, _ = latest_mail(address)
         phone = Browser("phone", PHONE_UA)
         confirm = phone.open(link)
-        check("Ja, Konto anlegen" in phone.html, "confirm page: create the account")
-        done = phone.submit(confirm.forms["kc-login-link-confirm-form"], None, "confirm")
-        check(done.data_state == "done", "confirmed")
+        check("Ja, Konto anlegen" in phone.html and 'name="terms"' in phone.html,
+              "confirm page: create the account, terms box")
+        form = confirm.forms["kc-login-link-confirm-form"]
+        again = phone.submit(form, None, "confirm")  # box not ticked
+        check("Bitte akzeptiere die AGB" in phone.html and again.data_state == "confirm",
+              "without the terms: asked again, nothing created")
+        check(desk.json(html.unescape(re.search(r'data-status-url="([^"]+)"', desk.html).group(1)))["state"] == "pending"
+              and not admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true"),
+              "the link still works, the waiting login still waits")
+        done = phone.submit(again.forms["kc-login-link-confirm-form"], {"terms": "on"}, "confirm")
+        check(done.data_state == "done", "terms ticked: confirmed")
         page = desk.submit(page.forms["kc-login-link-check-form"])
-        check(finish_profile(desk, page), "the waiting browser asks for the name")
-        check(desk.code_from_redirects() is not None, "and is logged in")
+        check(not finish_profile(desk, page) and desk.code_from_redirects() is not None,
+              "logged in at once, no name form")
         users = admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true")
-        check(len(users) == 1 and users[0]["emailVerified"] and users[0]["lastName"] == "KONTO",
-              "account exists, address verified, name stored")
-        credentials = admin_call(realm, "GET", f"/users/{users[0]['id']}/credentials") if users else []
+        user = users[0] if users else {}
+        check(len(users) == 1 and user.get("emailVerified"), "account exists, address verified")
+        check(user.get("firstName") == "Max" and user.get("lastName") == "NEU",
+              "name from the address: Max NEU")
+        check(bool(user) and terms_stored(realm, user), "terms acceptance stored")
+        credentials = admin_call(realm, "GET", f"/users/{user['id']}/credentials") if users else []
         check(not credentials, "no password")
         delete_users(realm, address)
 
@@ -575,7 +609,16 @@ def link_only(realm, identifier_first, organization=False):
         page = send_link(desk, realm, address, two_step)
         _, code, _ = latest_mail(address)
         page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
-        check(finish_profile(desk, page) and desk.code_from_redirects() is not None, "registration with the code")
+        check("kc-login-link-terms-form" in page.forms and desk.code_from_redirects() is None
+              and not admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true"),
+              "right code: terms page first, no account yet")
+        page = desk.submit(page.forms["kc-login-link-terms-form"], None, "register")
+        check("Bitte akzeptiere die AGB" in desk.html and "kc-login-link-terms-form" in page.forms,
+              "without the terms: asked again")
+        desk.submit(page.forms["kc-login-link-terms-form"], {"terms": "on"}, "register")
+        users = admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true")
+        check(desk.code_from_redirects() is not None and len(users) == 1 and terms_stored(realm, users[0]),
+              "terms ticked: account created, logged in")
         delete_users(realm, address)
 
         address = f"neu-{secrets.token_hex(3)}@autologg.local"

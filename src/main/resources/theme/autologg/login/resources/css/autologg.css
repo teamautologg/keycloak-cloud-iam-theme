@@ -1123,3 +1123,42 @@ details.al-code > form {
 .al-ended .al-status-hint {
     display: none;
 }
+
+/* Terms before an account is created (confirm page, terms page) */
+.al-terms {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 20px 0 4px;
+    text-align: left;
+}
+
+.al-terms .al-terms-box {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    margin: 1px 0 0;
+    accent-color: var(--al-accent);
+}
+
+.al-terms-label {
+    color: var(--al-text-body);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.al-terms-label a {
+    font-weight: 600;
+}
+
+.al-terms-missing .al-terms-box {
+    outline: 2px solid var(--al-danger);
+    outline-offset: 2px;
+}
+
+.al-terms-error {
+    margin: 6px 0 0 30px;
+    color: var(--al-danger);
+    font-size: 13px;
+}
+

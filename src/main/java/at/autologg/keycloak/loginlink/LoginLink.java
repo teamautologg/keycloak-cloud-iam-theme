@@ -27,6 +27,8 @@ final class LoginLink {
     static final String NOTE_DENIED = "autologg.loginLink.denied";
     /** Address of the account the link creates (unknown address, registration allowed). */
     static final String NOTE_REGISTER = "autologg.loginLink.register";
+    /** The right code for a registration came in; the terms page waits for the box to be ticked. */
+    static final String NOTE_REGISTER_VERIFIED = "autologg.loginLink.registerVerified";
 
     // Single-use store.
     static final String LINK_PREFIX = "autologg-login-link:";
@@ -49,6 +51,7 @@ final class LoginLink {
     static final String LINK_REGISTER = "register";
     static final String CONFIRMED_USER = "user";
     static final String CONFIRMED_REGISTER = "register";
+    static final String CONFIRMED_TERMS = "terms";
 
     // Form parameters of the login and waiting pages.
     static final String FORM_SEND = "loginLink";
@@ -58,20 +61,27 @@ final class LoginLink {
     static final String FORM_CANCEL = "loginLinkCancel";
     static final String FORM_NEXT = "loginLinkNext";
     static final String FORM_CHANGE_ADDRESS = "loginLinkChangeAddress";
+    static final String FORM_TERMS = "loginLinkTerms";
 
     // Form parameters of the confirm page.
     static final String CONFIRM_KEY = "key";
     static final String CONFIRM_DENY = "deny";
+    /** Checkbox "I accept the terms" (value "on"), on the confirm page and the terms page. */
+    static final String CONFIRM_TERMS = "terms";
 
     // Templates and their attributes.
     static final String TEMPLATE_SENT = "login-link-sent.ftl";
     static final String TEMPLATE_CONFIRM = "login-link-confirm.ftl";
+    static final String TEMPLATE_TERMS = "login-link-terms.ftl";
     static final String EMAIL_TEMPLATE = "login-link.ftl";
     static final String EMAIL_SUBJECT = "loginLinkEmailSubject";
     static final String EMAIL_SUBJECT_REGISTER = "loginLinkRegisterEmailSubject";
     static final String ATTR_LOGIN_FORM = "loginLink";
     static final String ATTR_SENT = "loginLinkSent";
     static final String ATTR_CONFIRM = "loginLinkConfirm";
+    static final String ATTR_TERMS = "loginLinkTerms";
+    /** User attribute with the time the terms were accepted (epoch seconds), as Keycloak's own terms action keeps it. */
+    static final String TERMS_ATTRIBUTE = "terms_and_conditions";
 
     /** Event detail on the LOGIN event: "link" or "code". */
     static final String EVENT_DETAIL = "login_link";

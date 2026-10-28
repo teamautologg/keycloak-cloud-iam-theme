@@ -106,12 +106,14 @@ public class LoginLinkResource {
     @Path("confirm")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Produces(MediaType.TEXT_HTML)
-    public Response confirm(@FormParam(LoginLink.CONFIRM_KEY) String key, @FormParam(LoginLink.CONFIRM_DENY) String deny) {
+    public Response confirm(@FormParam(LoginLink.CONFIRM_KEY) String key, @FormParam(LoginLink.CONFIRM_DENY) String deny,
+                            @FormParam(LoginLink.CONFIRM_TERMS) String terms) {
         RealmModel realm = session.getContext().getRealm();
         if (!LoginLinkSecrets.isWellFormedToken(key)) {
             return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), null);
         }
-        Map<String, String> link = session.singleUseObjects().remove(LoginLink.linkKey(LoginLinkSecrets.sha256(key)));
+        String linkKey = LoginLink.linkKey(LoginLinkSecrets.sha256(key));
+        Map<String, String> link = session.singleUseObjects().get(linkKey);
         if (link == null || !realm.getId().equals(link.get(LoginLink.LINK_REALM))) {
             return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), null);
         }
@@ -139,6 +141,17 @@ public class LoginLinkResource {
             return render(LoginLinkConfirmBean.invalid("loginLinkSessionGone"), user);
         }
 
+        if (deny == null && register != null && !"on".equals(terms)) {
+            // Not used up: the recipient ticks the box and creates the account then.
+            long minutesAgo = Math.max(0, (now - parseLong(link.get(LoginLink.LINK_CREATED_AT))) / 60);
+            return render(LoginLinkConfirmBean.confirm(selfUrl(realm), key, LoginLinkSecrets.maskEmail(register),
+                    minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS))
+                    .registering(true).withTermsMissing(), null);
+        }
+        if (session.singleUseObjects().remove(linkKey) == null) {
+            return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), user);  // used in the meantime
+        }
+
         if (deny != null) {
             waiting.setAuthNote(LoginLink.NOTE_DENIED, "refused");
             LOG.infof("Login link refused for %s in realm %s",
@@ -148,7 +161,8 @@ public class LoginLinkResource {
 
         session.singleUseObjects().put(LoginLink.confirmedKey(root.getId(), link.get(LoginLink.LINK_TAB)),
                 Math.max(1, expiresAt - now), register != null
-                        ? Map.of(LoginLink.CONFIRMED_USER, "", LoginLink.CONFIRMED_REGISTER, register)
+                        ? Map.of(LoginLink.CONFIRMED_USER, "", LoginLink.CONFIRMED_REGISTER, register,
+                                 LoginLink.CONFIRMED_TERMS, String.valueOf(now))
                         : Map.of(LoginLink.CONFIRMED_USER, user.getId()));
         LOG.debugf("Login link confirmed in realm %s", realm.getName());
         String address = register != null ? register : user.getEmail();

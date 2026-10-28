@@ -1,5 +1,6 @@
 <#import "template.ftl" as layout>
 <#import "buttons.ftl" as buttons>
+<#import "login-link-macros.ftl" as linkParts>
 <@layout.registrationLayout; section>
 <!-- template: login-link-confirm.ftl -->
     <#if section = "header">
@@ -37,8 +38,12 @@
                 </div>
             </dl>
             <form id="kc-login-link-confirm-form" class="${properties.kcFormClass!}" action="${loginLinkConfirm.actionUrl}" method="post"
-                  onsubmit="this.querySelector('button').disabled = true; return true;">
+                  onsubmit="this.querySelector('button[type=submit]').disabled = true; return true;">
                 <input type="hidden" name="key" value="${loginLinkConfirm.key}"/>
+                <#if loginLinkConfirm.register>
+                    <#-- Terms before the account: the box is required, the server checks it too. -->
+                    <@linkParts.termsCheckbox name=loginLinkConfirm.termsParameter missing=loginLinkConfirm.termsMissing />
+                </#if>
                 <@buttons.actionGroup>
                     <@buttons.button id="kc-login-link-confirm" name="confirm"
                                      label=loginLinkConfirm.register?then("loginLinkRegisterConfirmButton", "loginLinkConfirmButton") />

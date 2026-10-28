@@ -66,11 +66,16 @@ page two with both). This covers the browser login only; the API's password gran
 flow) is separate.
 
 Registration: if the realm lets people register, an unknown address gets an e-mail *Dein
-AutoLogg-Konto anlegen* instead of nothing - same waiting page; the link opens *Ja, Konto anlegen*. Confirming
-creates the account the way Keycloak's registration form would (default roles and required
-actions, REGISTER event with `register_method=login_link`), with the address verified and no
-password, and Keycloak then asks for first and last name (*Update Profile*). Nothing is created
-before the confirmation. The login page no longer links to Keycloak's registration form.
+AutoLogg-Konto anlegen* instead of nothing - same waiting page; the link opens *Konto anlegen*
+with a required box "Ich akzeptiere die AGB und habe die Datenschutzinformation gelesen" before
+*Ja, Konto anlegen* (the server checks it; without it the link stays unused). With the code
+instead, the same box comes after the right code. Only then the account is created the way
+Keycloak's registration form would (default roles and required actions, REGISTER event with
+`register_method=login_link`): address verified, no password, the acceptance time in the user
+attribute `terms_and_conditions` (as Keycloak's own terms action keeps it), and the name taken
+from the address - thomas.jetzinger@... becomes Thomas / JETZINGER (Thomas, 28.10.2026: no name
+form; people correct it in the app, whose profile edit writes it back to Keycloak). Nothing is
+created before that. The login page no longer links to Keycloak's registration form.
 
 Excluded: users of the realm role in `excludedRoles` (the setup script sets `microsoft-login-only`
 when the realm has it) get no e-mail; addresses of `excludedDomains` (e.g. `pharmatechnik.de`) get
@@ -164,6 +169,10 @@ there *Organization Identity-First Login* asks for the address first and the log
 hides the address field, for unknown addresses too.
 `--plain` checks the theme without the login link (Keycloak's own browser flow, as in prod):
 login, wrong password, password reset, registration.
+
+Each run types a few wrong codes on purpose; three runs within an hour reach the limit of 20 wrong
+codes per account and hour, and the code scenarios fail. `docker compose -p al5388 restart keycloak`
+empties the counters.
 
 Unit tests run with the Maven build.
 
