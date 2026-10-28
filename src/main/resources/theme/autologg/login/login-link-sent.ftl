@@ -35,15 +35,7 @@
                 </a>
             </#if>
 
-            <#if loginLinkSent.matchNumber?has_content>
-                <div class="al-match" aria-describedby="al-match-hint">
-                    <span class="al-match-label">${msg("loginLinkMatchLabel")}</span>
-                    <span id="al-match-number" class="al-match-number">${loginLinkSent.matchNumber}</span>
-                    <span id="al-match-hint" class="al-match-hint">${msg("loginLinkMatchHint")}</span>
-                </div>
-            <#else>
-                <p class="al-text al-muted al-center">${msg("loginLinkSentHint")}</p>
-            </#if>
+            <p class="al-text al-muted al-center">${msg("loginLinkSentHint")}</p>
 
             <div id="al-login-link-status" class="al-status" role="status" aria-live="polite"
                  data-state="${loginLinkSent.denied?then('denied', 'waiting')}"

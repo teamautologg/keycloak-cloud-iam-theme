@@ -29,12 +29,11 @@ The login always finishes in the window that started it. The app needs exactly t
 runs in a popup (web) or an in-app browser sheet (iOS/Android), while a link tapped in the mail app
 opens in a different browser. The browser that confirms is not logged in.
 
-Opening the link does nothing by itself; confirming is a POST. Mail scanners that open links in
-advance (Defender Safe Links etc.) can therefore not complete a login someone else started. The
-confirm page shows when and from which browser the login was requested and asks for the two-digit
-number the waiting page shows (number matching, as in Microsoft Authenticator), among two decoys:
-someone who starts a login with another person's address cannot get it confirmed by a careless tap.
-A wrong number or *Das war ich nicht* ends that login; the waiting page says so.
+Opening the link does nothing by itself; *Ja, anmelden* is a POST. Mail scanners that open links
+in advance (Defender Safe Links etc.) can therefore not complete a login someone else started, and
+the confirm page shows when and from which browser the login was requested. *Das war ich nicht*
+below the button ends that login at once; the waiting page says so. (Number matching was tried on
+28.10.2026 and taken out again: too complicated.)
 
 On desktops the waiting page offers *Gmail öffnen* / *Outlook öffnen* (new tab) for the address:
 known consumer domains directly, company domains by their MX records (Microsoft 365, Google
@@ -61,7 +60,7 @@ page two with both). This covers the browser login only; the API's password gran
 flow) is separate.
 
 Registration: if the realm lets people register, an unknown address gets an e-mail *Dein
-AutoLogg-Konto anlegen* instead of nothing - same waiting page, same number matching. Confirming
+AutoLogg-Konto anlegen* instead of nothing - same waiting page; the link opens *Ja, Konto anlegen*. Confirming
 creates the account the way Keycloak's registration form would (default roles and required
 actions, REGISTER event with `register_method=login_link`), with the address verified and no
 password, and Keycloak then asks for first and last name (*Update Profile*). Nothing is created

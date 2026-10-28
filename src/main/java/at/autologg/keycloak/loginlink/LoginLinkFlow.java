@@ -193,8 +193,6 @@ final class LoginLinkFlow {
         authSession.removeAuthNote(LoginLink.NOTE_TOKEN_HASH);
         authSession.removeAuthNote(LoginLink.NOTE_DENIED);
         authSession.removeAuthNote(LoginLink.NOTE_REGISTER);
-        String match = LoginLinkSecrets.newMatchNumber();
-        authSession.setAuthNote(LoginLink.NOTE_MATCH, match);
         if (knownUser == null && !typed.isEmpty()) {
             // As the password form does: lets brute force protection attribute wrong codes to the account.
             authSession.setAuthNote(AbstractUsernameFormAuthenticator.ATTEMPTED_USERNAME, typed);
@@ -230,8 +228,6 @@ final class LoginLinkFlow {
         if (operatingSystem != null) {
             link.put(LoginLink.LINK_OS, operatingSystem);
         }
-        link.put(LoginLink.LINK_MATCH, match);
-        link.put(LoginLink.LINK_CHOICES, String.join(",", LoginLinkSecrets.matchChoices(match)));
         store.put(LoginLink.linkKey(tokenHash), ttl, link);
         authSession.setAuthNote(LoginLink.NOTE_USER, user == null ? "" : user.getId());
         if (register != null) {
@@ -341,7 +337,7 @@ final class LoginLinkFlow {
         dropLink(context.getSession().singleUseObjects(), authSession);
         for (String note : List.of(LoginLink.NOTE_STATE, LoginLink.NOTE_USER, LoginLink.NOTE_IDENTIFIER,
                 LoginLink.NOTE_CODE_HASH, LoginLink.NOTE_EXPIRES_AT, LoginLink.NOTE_ATTEMPTS,
-                LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_MATCH, LoginLink.NOTE_DENIED,
+                LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_DENIED,
                 LoginLink.NOTE_REGISTER)) {
             authSession.removeAuthNote(note);
         }
@@ -457,7 +453,6 @@ final class LoginLinkFlow {
             authSession.setAuthNote(LoginLink.NOTE_USER, "");
             authSession.setAuthNote(LoginLink.NOTE_EXPIRES_AT, String.valueOf(now + ttlSeconds(context.getRealm())));
             authSession.setAuthNote(LoginLink.NOTE_ATTEMPTS, "0");
-            authSession.setAuthNote(LoginLink.NOTE_MATCH, LoginLinkSecrets.newMatchNumber());
         }
         authSession.setAuthNote(LoginLink.NOTE_SENT_AT, String.valueOf(now));
         context.challenge(waitingPage(null, message, null));
@@ -483,7 +478,7 @@ final class LoginLinkFlow {
         LoginFormsProvider form = context.form();
         form.setAttribute(LoginLink.ATTR_SENT,
                 new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, back,
-                        note(LoginLink.NOTE_MATCH), note(LoginLink.NOTE_DENIED) != null, mailbox(shown)));
+                        note(LoginLink.NOTE_DENIED) != null, mailbox(shown)));
         if (fieldError != null) {
             form.addError(fieldError);
         } else if (error != null) {

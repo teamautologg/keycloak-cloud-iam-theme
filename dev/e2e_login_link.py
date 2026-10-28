@@ -223,18 +223,6 @@ def choose(browser, page, address):
     return browser.submit(page.forms["kc-form-login"], {"username": address}, "next")
 
 
-def match_number(browser):
-    """The number the waiting page asks to pick on the confirm page."""
-    found = re.search(r'id="al-match-number"[^>]*>\s*(\d+)\s*<', browser.html)
-    return found.group(1) if found else None
-
-
-def confirm_on_phone(phone, link, number):
-    """Opens the e-mailed link on another device and picks the number; returns the page after the POST."""
-    confirm = phone.open(link)
-    return phone.submit(confirm.forms["kc-login-link-confirm-form"], {"match": number})
-
-
 def password_login(browser, realm, address, password, identifier_first):
     page = start_login(browser, realm)
     if identifier_first:
@@ -310,16 +298,13 @@ def scenarios(realm, identifier_first, organization=False):
     link, code, message = latest_mail(USER_WITH_PASSWORD[0])
     check(link is not None and code is not None, "e-mail with link and code arrived")
     check("Chrome auf Windows" in message["Text"], "e-mail names the requesting browser")
-    number = match_number(desk)
-    check(number is not None, "waiting page shows the number to pick")
     phone = Browser("phone", PHONE_UA)
     confirm = phone.open(link)
     check(confirm.data_state == "confirm", "GET of the link only asks for confirmation")
-    choices = re.findall(r'name="match" value="(\d+)"', phone.html)
-    check(len(choices) == 3 and number in choices, "confirm page offers three numbers, one of them right")
+    check('name="match"' not in phone.html, "one button, no numbers to pick")
     check(desk.json(status_url)["state"] == "pending", "a GET (mail scanner) does not confirm")
-    done = phone.submit(confirm.forms["kc-login-link-confirm-form"], {"match": number})
-    check(done.data_state == "done", "POST with the right number confirms")
+    done = phone.submit(confirm.forms["kc-login-link-confirm-form"], None, "confirm")
+    check(done.data_state == "done", "POST confirms")
     check(desk.json(status_url)["state"] == "confirmed", "waiting page sees the confirmation")
     again = phone.open(urllib.parse.urljoin(phone.url, confirm.forms["kc-login-link-confirm-form"]["action"]),
                        {"key": link_key(link)})
@@ -410,34 +395,21 @@ def scenarios(realm, identifier_first, organization=False):
     check(desk.code_from_redirects() is not None, "account without password logs in with the code")
 
 
-def number_matching(realm, identifier_first):
-    print("\n[10] wrong number and \"that wasn't me\"")
+def refused(realm, identifier_first):
+    print("\n[10] \"that wasn't me\"")
     address = USER_WITH_PASSWORD[0]
     clear_mails()
     desk = Browser("desk", DESKTOP_UA)
     page = send_link(desk, realm, address, identifier_first)
     status_url = html.unescape(re.search(r'data-status-url="([^"]+)"', desk.html).group(1))
-    number = match_number(desk)
     link, code, _ = latest_mail(address)
     phone = Browser("phone", PHONE_UA)
     confirm = phone.open(link)
-    wrong = next(c for c in re.findall(r'name="match" value="(\d+)"', phone.html) if c != number)
-    done = phone.submit(confirm.forms["kc-login-link-confirm-form"], {"match": wrong})
-    check(done.data_state == "denied", "a wrong number cancels the login")
+    done = phone.submit(confirm.forms["kc-login-link-deny-form"], None, "deny")
+    check(done.data_state == "denied", "\"that wasn't me\" cancels the login")
     check(desk.json(status_url)["state"] == "denied", "the waiting page learns about it")
     desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
     check(desk.code_from_redirects() is None, "the code of a cancelled login no longer works")
-
-    clear_mails()
-    desk = Browser("desk", DESKTOP_UA)
-    send_link(desk, realm, address, identifier_first)
-    status_url = html.unescape(re.search(r'data-status-url="([^"]+)"', desk.html).group(1))
-    link, _, _ = latest_mail(address)
-    phone = Browser("phone", PHONE_UA)
-    confirm = phone.open(link)
-    done = phone.submit(confirm.forms["kc-login-link-deny-form"], None, "deny")
-    check(done.data_state == "denied" and desk.json(status_url)["state"] == "denied",
-          "\"that wasn't me\" cancels the login")
 
 
 def pre_hijacking(realm, identifier_first):
@@ -581,9 +553,8 @@ def link_only(realm, identifier_first, organization=False):
         link, _, _ = latest_mail(address)
         phone = Browser("phone", PHONE_UA)
         confirm = phone.open(link)
-        check("Konto anlegen" in phone.html and len(re.findall(r'name="match"', phone.html)) == 3,
-              "confirm page: create account, pick the number")
-        done = phone.submit(confirm.forms["kc-login-link-confirm-form"], {"match": match_number(desk)})
+        check("Ja, Konto anlegen" in phone.html, "confirm page: create the account")
+        done = phone.submit(confirm.forms["kc-login-link-confirm-form"], None, "confirm")
         check(done.data_state == "done", "confirmed")
         page = desk.submit(page.forms["kc-login-link-check-form"])
         check(finish_profile(desk, page), "the waiting browser asks for the name")
@@ -896,7 +867,7 @@ def main():
     scenarios(realm, two_step, args.organization)
     password_off(realm, two_step, args.organization)
     update_password_dropped(realm, two_step)
-    number_matching(realm, two_step)
+    refused(realm, two_step)
     pre_hijacking(realm, two_step)
     ip_limit(realm, two_step)
     if not args.identifier_first:  # its Username Form stops the unknown test addresses before us

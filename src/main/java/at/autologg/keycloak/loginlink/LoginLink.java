@@ -23,8 +23,6 @@ final class LoginLink {
     static final String NOTE_TOKEN_HASH = "autologg.loginLink.token";
     /** Address taken on the first page of the e-mail-first login; set while the second page is shown. */
     static final String NOTE_CHOICE_ADDRESS = "autologg.loginLink.address";
-    /** Number shown on the waiting page; the confirm page asks for it among decoys. */
-    static final String NOTE_MATCH = "autologg.loginLink.match";
     /** Set by the confirm endpoint when the recipient denied or picked a wrong number. */
     static final String NOTE_DENIED = "autologg.loginLink.denied";
     /** Address of the account the link creates (unknown address, registration allowed). */
@@ -48,8 +46,6 @@ final class LoginLink {
     static final String LINK_EXPIRES_AT = "expires";
     static final String LINK_BROWSER = "browser";
     static final String LINK_OS = "os";
-    static final String LINK_MATCH = "match";
-    static final String LINK_CHOICES = "choices";
     static final String LINK_REGISTER = "register";
     static final String CONFIRMED_USER = "user";
     static final String CONFIRMED_REGISTER = "register";
@@ -65,7 +61,6 @@ final class LoginLink {
 
     // Form parameters of the confirm page.
     static final String CONFIRM_KEY = "key";
-    static final String CONFIRM_MATCH = "match";
     static final String CONFIRM_DENY = "deny";
 
     // Templates and their attributes.

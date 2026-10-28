@@ -36,26 +36,14 @@
                     </dd>
                 </div>
             </dl>
-            <#if loginLinkConfirm.choices?has_content>
-                <form id="kc-login-link-confirm-form" class="${properties.kcFormClass!}" action="${loginLinkConfirm.actionUrl}" method="post">
-                    <input type="hidden" name="key" value="${loginLinkConfirm.key}"/>
-                    <p class="al-text al-match-question" id="al-match-question">${msg("loginLinkMatchQuestion")}</p>
-                    <div class="al-match-choices" role="group" aria-labelledby="al-match-question">
-                        <#list loginLinkConfirm.choices as choice>
-                            <button type="submit" class="al-match-choice" name="${loginLinkConfirm.matchParameter}" value="${choice}">${choice}</button>
-                        </#list>
-                    </div>
-                    <p class="al-help">${msg("loginLinkMatchWrongHint")}</p>
-                </form>
-            <#else>
-                <form id="kc-login-link-confirm-form" class="${properties.kcFormClass!}" action="${loginLinkConfirm.actionUrl}" method="post"
-                      onsubmit="this.querySelector('button').disabled = true; return true;">
-                    <input type="hidden" name="key" value="${loginLinkConfirm.key}"/>
-                    <@buttons.actionGroup>
-                        <@buttons.button id="kc-login-link-confirm" name="confirm" label="loginLinkConfirmButton" />
-                    </@buttons.actionGroup>
-                </form>
-            </#if>
+            <form id="kc-login-link-confirm-form" class="${properties.kcFormClass!}" action="${loginLinkConfirm.actionUrl}" method="post"
+                  onsubmit="this.querySelector('button').disabled = true; return true;">
+                <input type="hidden" name="key" value="${loginLinkConfirm.key}"/>
+                <@buttons.actionGroup>
+                    <@buttons.button id="kc-login-link-confirm" name="confirm"
+                                     label=loginLinkConfirm.register?then("loginLinkRegisterConfirmButton", "loginLinkConfirmButton") />
+                </@buttons.actionGroup>
+            </form>
             <div class="al-separator"></div>
             <form id="kc-login-link-deny-form" action="${loginLinkConfirm.actionUrl}" method="post">
                 <input type="hidden" name="key" value="${loginLinkConfirm.key}"/>

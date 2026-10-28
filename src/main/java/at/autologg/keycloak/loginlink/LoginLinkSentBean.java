@@ -14,13 +14,12 @@ public class LoginLinkSentBean {
     private final long expiresInSeconds;
     private final long resendAvailableInSeconds;
     private final String back;
-    private final String matchNumber;
     private final boolean denied;
     private final String mailboxName;
     private final String mailboxUrl;
 
     LoginLinkSentBean(String identifier, String statusUrl, int codeLength, long expiresInSeconds,
-                      long resendAvailableInSeconds, String back, String matchNumber, boolean denied,
+                      long resendAvailableInSeconds, String back, boolean denied,
                       MailProviders.MailProvider mailbox) {
         this.identifier = identifier;
         this.statusUrl = statusUrl;
@@ -28,7 +27,6 @@ public class LoginLinkSentBean {
         this.expiresInSeconds = expiresInSeconds;
         this.resendAvailableInSeconds = resendAvailableInSeconds;
         this.back = back;
-        this.matchNumber = matchNumber;
         this.denied = denied;
         this.mailboxName = mailbox == null ? "" : mailbox.name();
         this.mailboxUrl = mailbox == null ? "" : mailbox.url();
@@ -41,11 +39,6 @@ public class LoginLinkSentBean {
 
     public String getMailboxUrl() {
         return mailboxUrl;
-    }
-
-    /** Number to pick on the page the link opens; empty for waiting pages from before it existed. */
-    public String getMatchNumber() {
-        return matchNumber == null ? "" : matchNumber;
     }
 
     /** The recipient refused the login on the confirm page. */

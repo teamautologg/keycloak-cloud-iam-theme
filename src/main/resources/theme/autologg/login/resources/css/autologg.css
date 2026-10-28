@@ -985,73 +985,10 @@ body.al-body {
     background: var(--al-accent-surface);
 }
 
-/* ---------- Number matching (waiting page and confirm page) ---------- */
+/* ---------- Waiting and confirm page details ---------- */
 
 .al-center {
     text-align: center;
-}
-
-.al-match {
-    display: grid;
-    justify-items: center;
-    gap: 6px;
-    margin: 20px 0 16px;
-    padding: 16px;
-    border: 1px solid var(--al-accent-border);
-    border-radius: var(--al-radius-control);
-    background: var(--al-accent-surface);
-    text-align: center;
-}
-
-.al-match-label {
-    color: var(--al-text-body);
-    font-size: 14px;
-    font-weight: 600;
-}
-
-.al-match-number {
-    color: var(--al-accent-text);
-    font-size: 44px;
-    font-weight: 800;
-    line-height: 1.1;
-    letter-spacing: 0.08em;
-    font-variant-numeric: tabular-nums;
-}
-
-.al-match-hint {
-    color: var(--al-text-secondary);
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-.al-match-question {
-    margin: 20px 0 12px;
-    font-weight: 600;
-}
-
-.al-match-choices {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-}
-
-.al-match-choice {
-    min-height: 72px;
-    border: 1px solid var(--al-border-strong);
-    border-radius: var(--al-radius-control);
-    background: var(--al-surface);
-    color: var(--al-text);
-    font: 800 30px/1 var(--al-font);
-    font-variant-numeric: tabular-nums;
-    cursor: pointer;
-}
-
-.al-match-choice:hover,
-.al-match-choice:focus-visible {
-    border-color: var(--al-accent);
-    background: var(--al-accent-surface);
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(14, 155, 245, 0.25);
 }
 
 .al-ghost-button.al-ghost-danger {
@@ -1073,7 +1010,6 @@ body.al-body {
 }
 
 /* Waiting page after expiry or refusal: only the status and "resend" are left. */
-.al-ended .al-match,
 .al-ended .al-divider,
 .al-ended #kc-login-link-code-form {
     display: none;

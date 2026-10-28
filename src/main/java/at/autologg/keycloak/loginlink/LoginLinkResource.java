@@ -1,7 +1,5 @@
 package at.autologg.keycloak.loginlink;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 
 import jakarta.ws.rs.Consumes;
@@ -96,21 +94,19 @@ public class LoginLinkResource {
         long minutesAgo = Math.max(0, (Time.currentTimeSeconds() - parseLong(link.get(LoginLink.LINK_CREATED_AT))) / 60);
         String address = register != null ? register : user.getEmail();
         return render(LoginLinkConfirmBean.confirm(selfUrl(realm), key, LoginLinkSecrets.maskEmail(address),
-                minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS), choices(link))
+                minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS))
                 .registering(register != null), user);
     }
 
     /**
-     * Uses up the link. With the number shown on the waiting page the waiting login finishes; a wrong
-     * number or "that was not me" ends it, so someone who started a login with another person's
-     * address cannot get it confirmed by a careless tap.
+     * Uses up the link: "confirm" lets the waiting login finish, "that was not me" ends it, and the
+     * waiting page says so.
      */
     @POST
     @Path("confirm")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Produces(MediaType.TEXT_HTML)
-    public Response confirm(@FormParam(LoginLink.CONFIRM_KEY) String key, @FormParam(LoginLink.CONFIRM_MATCH) String match,
-                            @FormParam(LoginLink.CONFIRM_DENY) String deny) {
+    public Response confirm(@FormParam(LoginLink.CONFIRM_KEY) String key, @FormParam(LoginLink.CONFIRM_DENY) String deny) {
         RealmModel realm = session.getContext().getRealm();
         if (!LoginLinkSecrets.isWellFormedToken(key)) {
             return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), null);
@@ -143,13 +139,11 @@ public class LoginLinkResource {
             return render(LoginLinkConfirmBean.invalid("loginLinkSessionGone"), user);
         }
 
-        String expected = link.get(LoginLink.LINK_MATCH);
-        boolean refused = deny != null;
-        if (refused || (expected != null && !expected.equals(match == null ? null : match.trim()))) {
-            waiting.setAuthNote(LoginLink.NOTE_DENIED, refused ? "refused" : "wrong number");
-            LOG.infof("Login link %s for %s in realm %s", refused ? "refused" : "confirmed with a wrong number",
+        if (deny != null) {
+            waiting.setAuthNote(LoginLink.NOTE_DENIED, "refused");
+            LOG.infof("Login link refused for %s in realm %s",
                     user != null ? "user " + user.getId() : "a new account", realm.getName());
-            return render(LoginLinkConfirmBean.denied(refused ? "loginLinkDeniedText" : "loginLinkWrongNumber"), user);
+            return render(LoginLinkConfirmBean.denied("loginLinkDeniedText"), user);
         }
 
         session.singleUseObjects().put(LoginLink.confirmedKey(root.getId(), link.get(LoginLink.LINK_TAB)),
@@ -183,11 +177,6 @@ public class LoginLinkResource {
             self.queryParam(LocaleSelectorProvider.KC_LOCALE_PARAM, locale);
         }
         return self.build().toString();
-    }
-
-    private static List<String> choices(Map<String, String> link) {
-        String raw = link.get(LoginLink.LINK_CHOICES);
-        return raw == null || raw.isBlank() ? List.of() : Arrays.asList(raw.split(","));
     }
 
     private static boolean expired(String expiresAt) {
