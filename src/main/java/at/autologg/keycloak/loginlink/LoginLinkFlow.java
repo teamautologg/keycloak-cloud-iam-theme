@@ -67,6 +67,8 @@ final class LoginLinkFlow {
     private final LoginLinkConfig config;
     private final String back;
     private final LoginPage loginPage;
+    /** This request passed the sending limits: a company domain may be looked up for the mailbox button. */
+    private boolean mailboxLookup;
 
     /**
      * @param back way back the waiting page offers, one of the {@code LoginLinkSentBean.BACK_*} values
@@ -186,8 +188,14 @@ final class LoginLinkFlow {
             return;
         }
 
+        mailboxLookup = true;
         UserModel user = knownUser != null ? knownUser : findUser(session, realm, typed);
         String register = user == null ? registrationAddress(realm, typed) : null;
+        if (register != null
+                && countThisHour(store, LoginLink.registrationsKey(realm.getId(), now / 3600)) > config.maxRegistrationsPerHour) {
+            warnRegistrationCap(realm, now / 3600);
+            register = null;  // treated like an address that cannot register: same page, no e-mail
+        }
         String refusal = register != null ? null : refusal(session, realm, user);
         long ttl = ttlSeconds(realm);
         String code = LoginLinkSecrets.newCode(config.codeLength);
@@ -631,7 +639,18 @@ final class LoginLinkFlow {
             return null;
         }
         Map<String, String> smtp = context.getRealm().getSmtpConfig();
-        return MailProviders.forAddress(address, smtp == null ? null : smtp.get("from")).orElse(null);
+        return MailProviders.forAddress(address, smtp == null ? null : smtp.get("from"), mailboxLookup).orElse(null);
+    }
+
+    private static volatile long registrationCapWarnedHour = -1;
+
+    /** Once per hour: someone may be mass-mailing made-up addresses through the registration. */
+    private static void warnRegistrationCap(RealmModel realm, long hour) {
+        if (registrationCapWarnedHour != hour) {
+            registrationCapWarnedHour = hour;
+            LOG.warnf("Login link: more registration e-mails than maxRegistrationsPerHour in realm %s this hour; "
+                    + "unknown addresses get no e-mail until the next hour", realm.getName());
+        }
     }
 
     /** Windows or macOS, where a mail app can be opened from the page; phones log in in the app's browser. */

@@ -15,12 +15,14 @@ from Mailpit. Standard library only.
 import argparse
 import base64
 import hashlib
+import hmac
 import html
 import http.cookiejar
 import json
 import os
 import re
 import secrets
+import struct
 import subprocess
 import sys
 import time
@@ -137,7 +139,7 @@ class Browser:
         return None
 
 
-def start_login(browser, realm):
+def start_login(browser, realm, extra=None):
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     params = {
@@ -149,6 +151,7 @@ def start_login(browser, realm):
         "nonce": secrets.token_urlsafe(12),
         "code_challenge": challenge,
         "code_challenge_method": "S256",
+        **(extra or {}),
     }
     return browser.open(f"{KEYCLOAK}/realms/{realm}/protocol/openid-connect/auth?" + urllib.parse.urlencode(params))
 
@@ -199,7 +202,7 @@ def configure_execution(token, realm, extra=None):
     executions = call("GET", f"/authentication/flows/{urllib.parse.quote(flow, safe='')}/executions")
     ours = next(e for e in executions if e.get("providerId", "").startswith("autologg-"))
     config = {"resendCooldownSeconds": str(COOLDOWN_SECONDS), "maxSendsPerHour": "100", "maxSendsPerIpPerHour": "100",
-              "passwordLogin": "true", **(extra or {})}
+              "passwordLogin": "true", "maxRegistrationsPerHour": "1000", **(extra or {})}
     if ours.get("authenticationConfig"):
         current = call("GET", f"/authentication/config/{ours['authenticationConfig']}")
         current["config"].update(config)
@@ -236,9 +239,9 @@ def password_login(browser, realm, address, password, identifier_first):
     return browser.submit(page.forms["kc-form-login"], {"username": address, "password": password}, "login")
 
 
-def send_link(browser, realm, address, identifier_first=False):
+def send_link(browser, realm, address, identifier_first=False, extra=None):
     pause_for_cooldown()
-    page = start_login(browser, realm)
+    page = start_login(browser, realm, extra)
     if identifier_first:
         page = browser.submit(page.forms["kc-form-login"], {"username": address}, "login")
     elif email_first(page):
@@ -670,6 +673,123 @@ def exclusions(realm, identifier_first, organization=False):
         configure_execution(admin_token(), realm, {"excludedDomains": "", "excludedRoles": ""})
 
 
+def registration_cap(realm, identifier_first, organization=False):
+    print("\n[17] cap on registration e-mails")
+    if identifier_first:
+        return  # no registration there
+    configure_execution(admin_token(), realm, {"maxRegistrationsPerHour": "0", "passwordLogin": ""})
+    try:
+        address = f"neu+{secrets.token_hex(3)}@autologg.local"
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, organization)
+        time.sleep(2)
+        check("kc-login-link-code-form" in page.forms and not mails_to(address),
+              "cap reached: unknown address gets the same page, no e-mail")
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        send_link(desk, realm, USER_WITH_PASSWORD[0], organization)
+        check(latest_mail(USER_WITH_PASSWORD[0])[0] is not None, "logins of existing accounts still get their link")
+    finally:
+        configure_execution(admin_token(), realm, {"maxRegistrationsPerHour": "1000", "passwordLogin": "true"})
+
+
+def run_setup_script(realm, *options):
+    script = os.path.join(os.path.dirname(__file__), "..", "scripts", "setup_login_link_flow.py")
+    return subprocess.run([sys.executable, script, "--server", KEYCLOAK, "--realm", realm, *options],
+                          env={**os.environ, "KC_ADMIN_TOKEN": admin_token(), "PYTHONIOENCODING": "utf-8"},
+                          capture_output=True, text=True, encoding="utf-8")
+
+
+def otp_requirement(realm):
+    """Requirement of the bound browser flow's subflow that holds the OTP Form."""
+    flow = admin_call(realm, "GET", "")["browserFlow"]
+    executions = admin_call(realm, "GET", f"/authentication/flows/{urllib.parse.quote(flow, safe='')}/executions")
+    for i, e in enumerate(executions):
+        if e.get("authenticationFlow"):
+            for child in executions[i + 1:]:
+                if child["level"] <= e["level"]:
+                    break
+                if child["level"] == e["level"] + 1 and child.get("providerId") == "auth-otp-form":
+                    return e["requirement"]
+    return None
+
+
+def totp(secret, at=None):
+    """Keycloak's TOTP (HmacSHA1, 6 digits, 30 s); the key is the secret's UTF-8 bytes (field totpSecret)."""
+    counter = int((time.time() if at is None else at) // 30)
+    digest = hmac.new(secret.encode(), struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    return f"{(int.from_bytes(digest[offset:offset + 4], 'big') & 0x7FFFFFFF) % 1000000:06d}"
+
+
+def wrong_totp(secret):
+    near = {totp(secret, time.time() + d) for d in (-30, 0, 30)}
+    return next(c for c in ("000000", "111111", "222222", "333333") if c not in near)
+
+
+def two_factor(realm, identifier_first, organization=False):
+    print("\n[18] two-factor sign-in with an authenticator app")
+    before = otp_requirement(realm)
+    out = run_setup_script(realm, "--otp-step", "off", "--apply", "--yes")
+    check(out.returncode == 0 and otp_requirement(realm) == "DISABLED", "setup script --otp-step off: OTP step disabled")
+    out = run_setup_script(realm, "--otp-step", "on", "--apply", "--yes")
+    check(out.returncode == 0 and otp_requirement(realm) == "CONDITIONAL", "--otp-step on: OTP step conditional")
+    if out.returncode != 0:
+        print(out.stdout[-800:], out.stderr[-800:])
+    address = "zweifaktor@autologg.local"
+    two_step = identifier_first or organization
+    delete_users(realm, address)
+    admin_call(realm, "POST", "/users", {"username": address, "email": address, "firstName": "Zwei", "lastName": "FAKTOR",
+                                         "enabled": True, "emailVerified": True})
+    user = admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true")[0]
+    try:
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, two_step, {"kc_action": "CONFIGURE_TOTP"})
+        _, code, _ = latest_mail(address)
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        form = page.forms.get("kc-totp-settings-form")
+        check(form is not None and desk.code_from_redirects() is None and "autologg.css" in desk.html,
+              "kc_action=CONFIGURE_TOTP: after the link the authenticator setup page (AutoLogg theme)")
+        if form is None:
+            return
+        secret = form["fields"]["totpSecret"]
+        page = desk.submit(form, {"totp": wrong_totp(secret), "userLabel": "Testtelefon"})
+        check("kc-totp-settings-form" in page.forms and desk.code_from_redirects() is None, "wrong app code: asked again")
+        desk.submit(page.forms["kc-totp-settings-form"], {"totp": totp(secret), "userLabel": "Testtelefon"})
+        check(desk.code_from_redirects() is not None, "right app code: saved, logged in")
+        credentials = admin_call(realm, "GET", f"/users/{user['id']}/credentials")
+        check(any(c["type"] == "otp" for c in credentials), "account has the authenticator (otp credential)")
+
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, two_step)
+        link, _, _ = latest_mail(address)
+        phone = Browser("phone", PHONE_UA)
+        confirm = phone.open(link)
+        phone.submit(confirm.forms["kc-login-link-confirm-form"], None, "confirm")
+        page = desk.submit(page.forms["kc-login-link-check-form"])
+        check("kc-otp-login-form" in page.forms and desk.code_from_redirects() is None,
+              "next login: after the link the app code is asked for")
+        page = desk.submit(page.forms["kc-otp-login-form"], {"otp": wrong_totp(secret)})
+        check("kc-otp-login-form" in page.forms and desk.code_from_redirects() is None, "wrong app code is rejected")
+        desk.submit(page.forms["kc-otp-login-form"], {"otp": totp(secret, time.time() + 30)})
+        check(desk.code_from_redirects() is not None, "right app code logs in")
+
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, two_step)
+        _, code, _ = latest_mail(address)
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check("kc-otp-login-form" in page.forms and desk.code_from_redirects() is None,
+              "with the code from the e-mail too")
+    finally:
+        delete_users(realm, address)
+        if before and before != "CONDITIONAL":
+            run_setup_script(realm, "--otp-step", "off", "--apply", "--yes")
+
+
 def admin_call(realm, method, path, body=None):
     req = urllib.request.Request(f"{KEYCLOAK}/admin/realms/{realm}{path}", method=method,
                                  data=None if body is None else json.dumps(body).encode())
@@ -874,6 +994,31 @@ def plain_scenarios(realm):
     for user in created:
         admin_call(realm, "DELETE", f"/users/{user['id']}")
 
+    print("\n[P4] two-factor sign-in with an authenticator app")
+    address, password = "zweifaktor@autologg.local", "Zwei1234!"
+    delete_users(realm, address)
+    admin_call(realm, "POST", "/users", {"username": address, "email": address, "firstName": "Zwei", "lastName": "FAKTOR",
+                                         "enabled": True, "emailVerified": True,
+                                         "credentials": [{"type": "password", "value": password, "temporary": False}]})
+    try:
+        desk = Browser("desk", DESKTOP_UA)
+        page = start_login(desk, realm, {"kc_action": "CONFIGURE_TOTP"})
+        page = desk.submit(page.forms["kc-form-login"], {"username": address, "password": password}, "login")
+        form = page.forms.get("kc-totp-settings-form")
+        check(form is not None and "autologg.css" in desk.html, "kc_action=CONFIGURE_TOTP: setup page (AutoLogg theme)")
+        if form is not None:
+            desk.submit(form, {"totp": totp(form["fields"]["totpSecret"]), "userLabel": "Testtelefon"})
+            check(desk.code_from_redirects() is not None, "right app code: saved, logged in")
+            desk = Browser("desk", DESKTOP_UA)
+            page = start_login(desk, realm)
+            page = desk.submit(page.forms["kc-form-login"], {"username": address, "password": password}, "login")
+            check("kc-otp-login-form" in page.forms and desk.code_from_redirects() is None,
+                  "next login asks for the app code")
+            desk.submit(page.forms["kc-otp-login-form"], {"otp": totp(form["fields"]["totpSecret"], time.time() + 30)})
+            check(desk.code_from_redirects() is not None, "right app code logs in")
+    finally:
+        delete_users(realm, address)
+
 
 def admin_token():
     form = urllib.parse.urlencode({"grant_type": "password", "client_id": "admin-cli",
@@ -902,9 +1047,7 @@ def main():
         sys.exit(1 if failures else 0)
     if args.identifier_first or args.organization:
         realm = setup_identifier_first(token) if args.identifier_first else setup_organization(token)
-        script = os.path.join(os.path.dirname(__file__), "..", "scripts", "setup_login_link_flow.py")
-        out = subprocess.run([sys.executable, script, "--server", KEYCLOAK, "--realm", realm, "--apply", "--yes"],
-                             env={**os.environ, "KC_ADMIN_TOKEN": token}, capture_output=True, text=True)
+        out = run_setup_script(realm, "--apply", "--yes")
         print(out.stdout[-1200:], out.stderr[-600:])
     configure_execution(token, realm)
 
@@ -920,6 +1063,8 @@ def main():
         open_mailbox(realm, two_step)
     link_only(realm, args.identifier_first, args.organization)
     exclusions(realm, args.identifier_first, args.organization)
+    registration_cap(realm, args.identifier_first, args.organization)
+    two_factor(realm, args.identifier_first, args.organization)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
 

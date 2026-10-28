@@ -22,6 +22,7 @@ class LoginLinkConfigTest {
         assertEquals(30, config.resendCooldownSeconds);
         assertEquals(10, config.maxSendsPerHour);
         assertEquals(30, config.maxSendsPerIpPerHour);
+        assertEquals(100, config.maxRegistrationsPerHour);
         assertTrue(config.excludedIdentityProviders.isEmpty());
         assertTrue(config.markEmailVerified);
         assertFalse(config.passwordLogin);
@@ -79,7 +80,7 @@ class LoginLinkConfigTest {
 
     @Test
     void exposesAllPropertiesInTheAdminConsole() {
-        assertEquals(12, LoginLinkConfig.properties().size());
+        assertEquals(13, LoginLinkConfig.properties().size());
     }
 
     private static AuthenticatorConfigModel model(Map<String, String> values) {

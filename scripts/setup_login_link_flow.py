@@ -28,6 +28,8 @@ Examples
   python scripts/setup_login_link_flow.py ... --config excludedDomains=pharmatechnik.de --apply
 
 On a realm that already uses the login-link forms, --config changes the execution config.
+--otp-step on switches the flow's OTP subflow to CONDITIONAL: accounts that set up an
+authenticator app (2FA) are asked for its code after the link; off disables it again.
 A realm role microsoft-login-only is excluded automatically (excludedRoles).
   python scripts/setup_login_link_flow.py ... --bind-flow browser --apply      # roll back
 """
@@ -48,7 +50,7 @@ REPLACEMENTS = {
 THEME = "autologg"
 CONFIG_KEYS = {
     "linkTtlMinutes", "codeLength", "maxCodeAttempts", "resendCooldownSeconds",
-    "maxSendsPerHour", "maxSendsPerIpPerHour", "excludedIdentityProviders", "markEmailVerified",
+    "maxSendsPerHour", "maxSendsPerIpPerHour", "maxRegistrationsPerHour", "excludedIdentityProviders", "markEmailVerified",
     "passwordLogin", "emailFirst", "excludedRoles", "excludedDomains",
 }
 # Users of this realm role sign in with Microsoft only (Tools/keycloak-entra/setup_microsoft_login_only.py).
@@ -238,10 +240,13 @@ def setup(api, args):
         print(f"\nRealm role {MICROSOFT_ONLY_ROLE} exists: its users get no login e-mail (excludedRoles).")
     print_identity_providers(api, config)
     print(f"\nRegistration: {'new addresses register through the link' if realm.get('registrationAllowed') else 'off (realm)'}")
+    steps = otp_steps(executions)
+    print("OTP step (2FA after the link): "
+          + (", ".join(f"{e['displayName']!r} {e['requirement']}" for _, e in steps) or "none in the flow"))
 
     ours = [e for e in executions if e.get("providerId") in REPLACEMENTS.values()]
     if ours:
-        update_config(api, args, ours, config)
+        update_config(api, args, ours, config, current, executions)
         return
     targets = [(i, e) for i, e in enumerate(executions) if e.get("providerId") in REPLACEMENTS]
     if not targets:
@@ -262,6 +267,8 @@ def setup(api, args):
     if config:
         print(f"  3. execution config: {config}")
     print(f"  4. bind {new_alias!r} as browser flow (roll back: --bind-flow {current!r})")
+    for _, e, wanted in otp_plan(args, executions):
+        print(f"  5. in the copy set the OTP step {e['displayName']!r} from {e['requirement']} to {wanted}")
     if not args.apply:
         print("\nDry run - nothing changed. Run again with --apply.")
         return
@@ -286,11 +293,44 @@ def setup(api, args):
         raise
 
     bind(api, args.realm, new_alias, True)
+    copied = api.executions(new_alias)
+    apply_otp_plan(api, new_alias, copied, otp_plan(args, copied))
     print("\nNew flow:")
     print_flow(api.executions(new_alias))
 
 
-def update_config(api, args, executions, config):
+def otp_steps(executions):
+    """(index, execution) of the subflows that hold an OTP Form directly."""
+    found = []
+    for i, e in enumerate(executions):
+        if not e.get("authenticationFlow"):
+            continue
+        for child in executions[i + 1:]:
+            if child["level"] <= e["level"]:
+                break
+            if child["level"] == e["level"] + 1 and child.get("providerId") == "auth-otp-form":
+                found.append((i, e))
+                break
+    return found
+
+
+def otp_plan(args, executions):
+    """OTP subflows whose requirement --otp-step changes: [(index, execution, new requirement)]."""
+    if not args.otp_step:
+        return []
+    wanted = "CONDITIONAL" if args.otp_step == "on" else "DISABLED"
+    return [(i, e, wanted) for i, e in otp_steps(executions) if e["requirement"] != wanted]
+
+
+def apply_otp_plan(api, flow_alias, executions, plan):
+    for i, e, wanted in plan:
+        changed = dict(e)
+        changed["requirement"] = wanted
+        api.call("PUT", f"/authentication/flows/{quote(parent_alias(executions, i, flow_alias))}/executions", changed)
+        print(f"  OTP step {e['displayName']!r}: {e['requirement']} -> {wanted}")
+
+
+def update_config(api, args, executions, config, flow_alias=None, all_executions=None):
     """The bound flow already uses our forms: merge --config (and the automatic keys) into their config."""
     plan = []
     for execution in executions:
@@ -301,12 +341,15 @@ def update_config(api, args, executions, config):
         print(f"\n{execution['displayName']}: config {current or '(defaults)'}")
         if changed:
             plan.append((execution, changed))
-    if not plan:
+    otp = otp_plan(args, all_executions or [])
+    if not plan and not otp:
         print("\nThe bound flow already uses the login-link forms with this config; nothing to do.")
         return
     print("\nPlan:")
     for execution, changed in plan:
         print(f"  - {execution['displayName']}: set {changed}")
+    for _, e, wanted in otp:
+        print(f"  - OTP step {e['displayName']!r}: {e['requirement']} -> {wanted}")
     if not args.apply:
         print("\nDry run - nothing changed. Run again with --apply.")
         return
@@ -324,6 +367,7 @@ def update_config(api, args, executions, config):
             api.call("POST", f"/authentication/executions/{execution['id']}/config",
                      {"alias": f"login-link-{execution['id'][:8]}", "config": changed})
         print(f"  {execution['displayName']}: config updated")
+    apply_otp_plan(api, flow_alias, all_executions or [], otp)
 
 
 def replace_forms(api, new_alias, config):
@@ -367,6 +411,8 @@ def main():
     p.add_argument("--new-flow", help="alias of the copy (default: '<current> with login link')")
     p.add_argument("--config", action="append", metavar="KEY=VALUE",
                    help="execution config, e.g. linkTtlMinutes=15, passwordLogin=false or excludedIdentityProviders=entra-acme")
+    p.add_argument("--otp-step", choices=("on", "off"),
+                   help="on: accounts with an authenticator app (2FA) enter its code after the link")
     p.add_argument("--bind-flow", metavar="ALIAS", help="only bind this flow as browser flow (roll back)")
     p.add_argument("--apply", action="store_true", help="make the changes after a confirmation (default: dry run)")
     p.add_argument("--yes", action="store_true", help="with --apply: do not ask before changing anything")

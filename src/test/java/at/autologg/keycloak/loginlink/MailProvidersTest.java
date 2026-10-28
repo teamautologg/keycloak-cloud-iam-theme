@@ -55,4 +55,12 @@ class MailProvidersTest {
         assertNull(MailProviders.domainOf("thomas@exa mple.com"));
         assertNull(MailProviders.domainOf(null));
     }
+
+    @Test
+    void companyDomainsAreLookedUpOnlyWhenAllowed() {
+        // Not allowed and not cached: no DNS query, no button.
+        assertTrue(MailProviders.forAddress("someone@not-looked-up-al5388.example", null, false).isEmpty());
+        // Consumer domains need no lookup.
+        assertEquals("Outlook", MailProviders.forAddress("max@outlook.com", null, false).orElseThrow().name());
+    }
 }
