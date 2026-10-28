@@ -482,18 +482,21 @@ def open_mailbox(realm, identifier_first):
     print("\n[13] \"Gmail öffnen\" on the waiting page")
 
     def waiting(address, user_agent):
+        """(main button target, web link below it) of the waiting page."""
         browser = Browser("desk", user_agent)
         send_link(browser, realm, address, identifier_first)
-        found = re.search(r'id="al-open-mailbox"[^>]*href="([^"]+)"[^>]*target="_blank"', browser.html)
-        return html.unescape(found.group(1)) if found else None
+        main = re.search(r'<a id="al-open-mailbox"[^>]*href="([^"]+)"', browser.html)
+        web = re.search(r'<a id="al-open-mailbox-web"[^>]*href="([^"]+)"[^>]*target="_blank"', browser.html)
+        return (html.unescape(main.group(1)) if main else None, html.unescape(web.group(1)) if web else None)
 
-    # Unknown addresses: the page is the same as for accounts, and nothing is sent.
-    check((waiting("niemand-al5388@gmail.com", DESKTOP_UA) or "").startswith("https://mail.google.com/"),
-          "Gmail address: button opens Gmail in a new tab")
-    check(waiting("niemand-al5388@autologg.com", DESKTOP_UA) == "https://outlook.office.com/mail/",
-          "company domain on Microsoft 365 (MX): Outlook")
-    check(waiting("niemand-al5388@gmail.com", PHONE_UA) is None, "no button on a phone (in-app browser)")
-    check(waiting("niemand@autologg.local", DESKTOP_UA) is None, "no button for an unknown provider")
+    # Unknown addresses: the page is the same as for accounts; with registration they get its e-mail (Mailpit).
+    main, web = waiting("niemand-al5388@gmail.com", DESKTOP_UA)
+    check((main or "").startswith("https://mail.google.com/") and web is None, "Gmail address: button opens Gmail in a new tab")
+    main, web = waiting("niemand-al5388@autologg.com", DESKTOP_UA)
+    check(main == "ms-outlook:" and web == "https://outlook.office.com/mail/",
+          "Microsoft 365 (MX) on Windows: button opens the Outlook app, link below the web version")
+    check(waiting("niemand-al5388@gmail.com", PHONE_UA) == (None, None), "no button on a phone (in-app browser)")
+    check(waiting("niemand@autologg.local", DESKTOP_UA) == (None, None), "no button for an unknown provider")
 
 
 def latest_mail_message(address, wait=10):

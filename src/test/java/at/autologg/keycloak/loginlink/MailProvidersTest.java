@@ -19,6 +19,14 @@ class MailProvidersTest {
     }
 
     @Test
+    void outlookHasTheDesktopAppGmailDoesNot() {
+        assertEquals("ms-outlook:", MailProviders.forAddress("max@hotmail.de", null).orElseThrow().appUrl());
+        assertEquals("ms-outlook:", MailProviders.classifyMx(List.of("contoso-com.mail.protection.outlook.com")).orElseThrow().appUrl());
+        assertNull(MailProviders.forAddress("max@gmail.com", "no-reply@autologg.com").orElseThrow().appUrl());
+        assertNull(MailProviders.forAddress("max@gmx.at", null).orElseThrow().appUrl());
+    }
+
+    @Test
     void gmailOpensOnASearchForOurMail() {
         String url = MailProviders.forAddress("max@gmail.com", "no-reply@autologg.com").orElseThrow().url();
         assertEquals("https://mail.google.com/mail/u/0/#search/from%3Ano-reply%40autologg.com+in%3Aanywhere+newer_than%3A1d", url);

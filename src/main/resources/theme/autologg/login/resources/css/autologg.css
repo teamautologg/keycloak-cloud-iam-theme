@@ -802,17 +802,6 @@ body.al-body {
     opacity: 0.6;
 }
 
-.al-link-help {
-    margin-top: 20px;
-}
-
-.al-link-actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 4px 16px;
-}
-
 .al-link-actions form {
     margin: 0;
 }
@@ -942,19 +931,6 @@ body.al-body {
     height: 30px;
 }
 
-.al-resend-line {
-    display: block;
-}
-
-.al-card .al-resend-line .pf-v5-c-button.pf-m-link.al-inline-button {
-    display: inline;
-    min-height: 0;
-    margin-left: 2px;
-    padding: 0;
-    font-size: inherit;
-    vertical-align: baseline;
-}
-
 .al-card:has(.al-link-sent) #kc-page-title {
     text-align: center;
 }
@@ -1031,6 +1007,123 @@ body.al-body {
     opacity: 0.7;
 }
 
-.al-ended .al-mailbox-button {
+/* ---------- Waiting page, second pass (28.10.2026) ---------- */
+
+.al-sent-address {
+    margin: 2px 0 0;
+    color: var(--al-text);
+    font-size: 16px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.al-help.al-tight {
+    margin-top: 6px;
+}
+
+.al-mailbox {
+    margin: 22px 0 18px;
+}
+
+.al-card .pf-v5-c-button.al-mailbox-button {
+    margin-top: 0;
+}
+
+.al-mailbox .al-help a {
+    font-weight: 600;
+}
+
+.al-status-hint {
+    margin-top: 8px;
+}
+
+details.al-code {
+    margin-top: 18px;
+}
+
+details.al-code > summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 0;
+    color: var(--al-accent-text);
+    font-size: 14px;
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+}
+
+details.al-code > summary::-webkit-details-marker {
+    display: none;
+}
+
+details.al-code > summary::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    margin-top: -3px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform var(--al-duration, 120ms) ease;
+}
+
+details.al-code[open] > summary::after {
+    margin-top: 3px;
+    transform: rotate(-135deg);
+}
+
+details.al-code > form {
+    margin-top: 8px;
+}
+
+.al-link-help {
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: 1px solid var(--al-border);
+    text-align: center;
+}
+
+.al-link-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px 10px;
+    margin-top: 8px;
+}
+
+.al-link-actions form {
+    margin: 0;
+}
+
+.al-text-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--al-accent-text);
+    font: 600 14px/1.4 var(--al-font);
+    cursor: pointer;
+}
+
+.al-text-link:hover:not(:disabled),
+.al-text-link:focus-visible {
+    text-decoration: underline;
+}
+
+.al-text-link:disabled {
+    color: var(--al-text-muted);
+    cursor: default;
+}
+
+.al-dot {
+    color: var(--al-text-muted);
+}
+
+/* After expiry or refusal only the status, "resend" and the way back are left. */
+.al-ended .al-mailbox,
+.al-ended .al-code,
+.al-ended .al-status-hint {
     display: none;
 }

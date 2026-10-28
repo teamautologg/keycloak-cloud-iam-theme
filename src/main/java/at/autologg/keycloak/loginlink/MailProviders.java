@@ -29,8 +29,14 @@ final class MailProviders {
 
     private static final Logger LOG = Logger.getLogger(MailProviders.class);
 
-    /** Web mailbox to open: display name and URL. */
-    record MailProvider(String name, String url) {
+    /**
+     * Mailbox to open: display name, web URL, and the desktop app's URL scheme if it has one
+     * (the new Outlook for Windows and Outlook for Mac answer to ms-outlook:).
+     */
+    record MailProvider(String name, String url, String appUrl) {
+        MailProvider(String name, String url) {
+            this(name, url, null);
+        }
     }
 
     static final String GMAIL = "Gmail";
@@ -39,20 +45,21 @@ final class MailProviders {
     private static final String GMAIL_URL = "https://mail.google.com/mail/u/0/";
     private static final String OUTLOOK_LIVE_URL = "https://outlook.live.com/mail/0/";
     private static final String OUTLOOK_365_URL = "https://outlook.office.com/mail/";
+    private static final String OUTLOOK_APP_URL = "ms-outlook:";
 
     private static final Map<String, MailProvider> CONSUMER = Map.ofEntries(
             Map.entry("gmail.com", new MailProvider(GMAIL, GMAIL_URL)),
             Map.entry("googlemail.com", new MailProvider(GMAIL, GMAIL_URL)),
-            Map.entry("outlook.com", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("outlook.de", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("outlook.at", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("hotmail.com", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("hotmail.de", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("hotmail.at", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("live.com", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("live.de", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("live.at", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
-            Map.entry("msn.com", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL)),
+            Map.entry("outlook.com", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("outlook.de", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("outlook.at", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("hotmail.com", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("hotmail.de", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("hotmail.at", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("live.com", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("live.de", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("live.at", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
+            Map.entry("msn.com", new MailProvider(OUTLOOK, OUTLOOK_LIVE_URL, OUTLOOK_APP_URL)),
             Map.entry("yahoo.com", new MailProvider("Yahoo Mail", "https://mail.yahoo.com/")),
             Map.entry("yahoo.de", new MailProvider("Yahoo Mail", "https://mail.yahoo.com/")),
             Map.entry("ymail.com", new MailProvider("Yahoo Mail", "https://mail.yahoo.com/")),
@@ -112,7 +119,7 @@ final class MailProviders {
         for (String raw : exchangers) {
             String host = raw.toLowerCase(Locale.ROOT).replaceAll("\\.$", "");
             if (host.endsWith(".mail.protection.outlook.com") || host.endsWith(".mx.microsoft")) {
-                return Optional.of(new MailProvider(OUTLOOK, OUTLOOK_365_URL));
+                return Optional.of(new MailProvider(OUTLOOK, OUTLOOK_365_URL, OUTLOOK_APP_URL));
             }
             if (host.endsWith("google.com") || host.endsWith("googlemail.com")) {
                 return Optional.of(new MailProvider(GMAIL, GMAIL_URL));

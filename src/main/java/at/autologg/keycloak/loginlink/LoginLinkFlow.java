@@ -478,7 +478,7 @@ final class LoginLinkFlow {
         LoginFormsProvider form = context.form();
         form.setAttribute(LoginLink.ATTR_SENT,
                 new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, back,
-                        note(LoginLink.NOTE_DENIED) != null, mailbox(shown)));
+                        note(LoginLink.NOTE_DENIED) != null, mailbox(shown), isDesktop()));
         if (fieldError != null) {
             form.addError(fieldError);
         } else if (error != null) {
@@ -593,6 +593,12 @@ final class LoginLinkFlow {
         }
         Map<String, String> smtp = context.getRealm().getSmtpConfig();
         return MailProviders.forAddress(address, smtp == null ? null : smtp.get("from")).orElse(null);
+    }
+
+    /** Windows or macOS, where a mail app can be opened from the page; phones log in in the app's browser. */
+    private boolean isDesktop() {
+        String os = UserAgents.operatingSystem(context.getHttpRequest().getHttpHeaders().getHeaderString("User-Agent"));
+        return "Windows".equals(os) || "macOS".equals(os);
     }
 
     /** Expired, or the recipient refused it on the confirm page. */

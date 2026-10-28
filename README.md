@@ -35,7 +35,10 @@ the confirm page shows when and from which browser the login was requested. *Das
 below the button ends that login at once; the waiting page says so. (Number matching was tried on
 28.10.2026 and taken out again: too complicated.)
 
-On desktops the waiting page offers *Gmail öffnen* / *Outlook öffnen* (new tab) for the address:
+On desktops the waiting page offers *Gmail öffnen* / *Outlook öffnen* as its main button for the address
+(Outlook on Windows and macOS: the app through `ms-outlook:` - the new Outlook for Windows and Outlook
+for Mac register it, classic Outlook does not - with *oder Outlook im Browser öffnen* below; else
+the web mailbox in a new tab):
 known consumer domains directly, company domains by their MX records (Microsoft 365, Google
 Workspace; looked up with a 0.5 s timeout, cached 6 h). Gmail opens on a search for our sender, spam
 included. Not on phones: there the login runs in the app's in-app browser, where a link would leave
