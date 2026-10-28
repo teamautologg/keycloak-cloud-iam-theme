@@ -1,104 +1,164 @@
 <#import "template.ftl" as layout>
-<@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled??; section>
-    <#if section = "header">
-        ${msg("loginAccountTitle")}
-    <#elseif section = "form">
-    <br/>
-    <div id="kc-form">
-      <div id="kc-form-wrapper">
-        <#if realm.password>
-            <form id="kc-form-login" onsubmit="login.disabled = true; return true;" action="${url.loginAction}" method="post">
-                <#if !usernameHidden??>
-                    <div class="${properties.kcFormGroupClass!}">
-                        <label for="username" class="${properties.kcLabelClass!}"><#if !realm.loginWithEmailAllowed>${msg("username")}<#elseif !realm.registrationEmailAsUsername>${msg("usernameOrEmail")}<#else>${msg("email")}</#if></label>
+<#import "field.ftl" as field>
+<#import "buttons.ftl" as buttons>
+<#import "social-providers.ftl" as identityProviders>
+<#import "passkeys.ftl" as passkeys>
+<#-- step: "single" (address, password and link on one page; also Keycloak's own form without the
+     login link), "email" (e-mail first, page one: the address only) or "choice" (page two: link or
+     password for that address). Without the password (switched off in the execution config) the
+     single page asks for the address only. -->
+<#assign step = (loginLink??)?then(loginLink.step, "single")>
+<#assign passwordShown = !(loginLink??) || loginLink.passwordAvailable>
+<#assign mailIcon><svg class="al-link-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg></#assign>
+<@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled?? && !(loginLink??); section>
+<!-- template: login.ftl -->
 
-                        <input tabindex="1" id="username" class="${properties.kcInputClass!}" name="username" value="${(login.username!'')}"  type="text" autofocus autocomplete="off"
-                               aria-invalid="<#if messagesPerField.existsError('username','password')>true</#if>"
-                        />
-
-                        <#if messagesPerField.existsError('username','password')>
-                            <span id="input-error" class="${properties.kcInputErrorMessageClass!}" aria-live="polite">
-                                    ${kcSanitize(messagesPerField.getFirstError('username','password'))?no_esc}
-                            </span>
-                        </#if>
-
-                    </div>
-                </#if>
-
-                <div class="${properties.kcFormGroupClass!}">
-                    <label for="password" class="${properties.kcLabelClass!}">${msg("password")}</label>
-
-                    <input tabindex="2" id="password" class="${properties.kcInputClass!}" name="password" type="password" autocomplete="off"
-                           aria-invalid="<#if messagesPerField.existsError('username','password')>true</#if>"
-                    />
-
-                    <#if usernameHidden?? && messagesPerField.existsError('username','password')>
-                        <span id="input-error" class="${properties.kcInputErrorMessageClass!}" aria-live="polite">
-                                ${kcSanitize(messagesPerField.getFirstError('username','password'))?no_esc}
-                        </span>
-                    </#if>
-
-                </div>
-
-                <div class="${properties.kcFormGroupClass!} ${properties.kcFormSettingClass!}">
-                    <div id="kc-form-options">
-                        <#if realm.rememberMe && !usernameHidden??>
-                            <div class="checkbox">
-                                <label>
-                                    <#if login.rememberMe??>
-                                        <input tabindex="3" id="rememberMe" name="rememberMe" type="checkbox" checked> ${msg("rememberMe")}
-                                    <#else>
-                                        <input tabindex="3" id="rememberMe" name="rememberMe" type="checkbox"> ${msg("rememberMe")}
-                                    </#if>
-                                </label>
-                            </div>
-                        </#if>
-                        </div>
-                        <div class="${properties.kcFormOptionsWrapperClass!}">
-                            <#if realm.resetPasswordAllowed>
-                                <span><a tabindex="5" href="${url.loginResetCredentialsUrl}">${msg("doForgotPassword")}</a></span>
-                            </#if>
-                        </div>
-
-                  </div>
-
-                  <div id="kc-form-buttons" class="${properties.kcFormGroupClass!}">
-                      <input type="hidden" id="id-hidden-input" name="credentialId" <#if auth.selectedCredential?has_content>value="${auth.selectedCredential}"</#if>/>
-                      <input tabindex="4" class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}" name="login" id="kc-login" type="submit" value="${msg("doLogIn")}"/>
-                  </div>
+    <#if section = "beforeHeader">
+        <#if step == "choice">
+            <form id="kc-login-change-address-form" action="${url.loginAction}" method="post" novalidate="novalidate">
+                <button type="submit" class="al-back-link" name="${loginLink.changeAddressParameter}" value="1" formnovalidate>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                    ${msg("loginLinkChangeAddress")}
+                </button>
             </form>
         </#if>
-        </div>
+    <#elseif section = "header">
+        <#if step == "choice">${msg("loginLinkChoiceTitle")}<#else>${msg("loginAccountTitle")}</#if>
+    <#elseif section = "form">
+        <div id="kc-form">
+          <div id="kc-form-wrapper">
+            <#if realm.password && step == "email">
+                <form id="kc-form-login" class="${properties.kcFormClass!}" onsubmit="if (this.next) { this.next.disabled = true; } return true;" action="${url.loginAction}" method="post" novalidate="novalidate">
+                    <@field.input name="username" label=msg("email") error=messagesPerField.getFirstError('username','password')
+                        autofocus=true autocomplete="${(enableWebAuthnConditionalUI?has_content)?then('username webauthn', 'username')}" value=login.username!'' />
+                    <input type="hidden" name="${loginLink.nextParameter}" value="1"/>
+                    <@buttons.actionGroup>
+                        <button class="${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} al-link-button" type="submit" id="kc-login-next" name="next">
+                            ${msg("loginLinkNext")}
+                            <svg class="al-link-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
+                        </button>
+                    </@buttons.actionGroup>
+                    <p class="al-help">${msg("loginLinkEmailStepHelp")}</p>
+                </form>
+            <#elseif realm.password && step == "choice">
+                <p class="al-mail-pill">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg>
+                    <span>${loginLink.address}</span>
+                </p>
+                <#-- Two forms: Enter in the password field must log in with the password, not send a link. -->
+                <form id="kc-login-link-form" class="${properties.kcFormClass!}" action="${url.loginAction}" method="post" novalidate="novalidate">
+                    <input type="hidden" name="username" value="${loginLink.address}"/>
+                    <#if realm.rememberMe><input type="hidden" id="al-link-remember" name="rememberMe" value="${(login.rememberMe??)?then('on', '')}"/></#if>
+                    <@buttons.actionGroup>
+                        <button class="${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} al-link-button" type="submit"
+                                id="kc-login-link" name="${loginLink.sendParameter}" value="1" formnovalidate>
+                            ${mailIcon}
+                            ${msg("loginLinkSend")}
+                        </button>
+                    </@buttons.actionGroup>
+                    <p class="al-help">${msg("loginLinkChoiceLinkHelp")}</p>
+                </form>
+                <#if passwordShown>
+                    <div class="al-divider"><span>${msg("loginLinkOr")}</span></div>
+                    <form id="kc-form-login" class="${properties.kcFormClass!}" onsubmit="if (this.login) { this.login.disabled = true; } return true;" action="${url.loginAction}" method="post" novalidate="novalidate">
+                        <#-- Hidden but not type=hidden: password managers pair the password with this address. -->
+                        <input type="email" name="username" value="${loginLink.address}" autocomplete="username" readonly hidden/>
+                        <@field.password name="password" label=msg("password") error=messagesPerField.getFirstError('username','password') forgotPassword=realm.resetPasswordAllowed autocomplete="current-password">
+                            <#if realm.rememberMe>
+                                <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
+                            </#if>
+                        </@field.password>
+                        <input type="hidden" id="id-hidden-input" name="credentialId" <#if auth.selectedCredential?has_content>value="${auth.selectedCredential}"</#if>/>
+                        <@buttons.actionGroup>
+                            <@buttons.button id="kc-login" name="login" label="loginLinkPasswordLogin" type="secondary" />
+                        </@buttons.actionGroup>
+                    </form>
+                    <#if realm.rememberMe>
+                        <script>
+                            (function () {
+                                var box = document.querySelector('#kc-form-login input[name="rememberMe"]');
+                                var copy = document.getElementById('al-link-remember');
+                                if (box && copy) {
+                                    box.addEventListener('change', function () { copy.value = box.checked ? 'on' : ''; });
+                                }
+                            })();
+                        </script>
+                    </#if>
+                <#elseif realm.rememberMe>
+                    <div class="al-remember-only">
+                        <@field.checkbox name="rememberMeLink" label=msg("rememberMe") value=login.rememberMe?? />
+                    </div>
+                    <script>
+                        (function () {
+                            var box = document.querySelector('input[name="rememberMeLink"]');
+                            var copy = document.getElementById('al-link-remember');
+                            if (box && copy) {
+                                box.addEventListener('change', function () { copy.value = box.checked ? 'on' : ''; });
+                            }
+                        })();
+                    </script>
+                </#if>
+            <#elseif realm.password>
+                <form id="kc-form-login" class="${properties.kcFormClass!}" onsubmit="if (this.login) { this.login.disabled = true; } return true;" action="${url.loginAction}" method="post" novalidate="novalidate">
+                    <#if !usernameHidden??>
+                        <#assign label>
+                            <#if !realm.loginWithEmailAllowed>${msg("username")}<#elseif !realm.registrationEmailAsUsername>${msg("usernameOrEmail")}<#else>${msg("email")}</#if>
+                        </#assign>
+                        <@field.input name="username" label=label error=messagesPerField.getFirstError('username','password')
+                            autofocus=true autocomplete="${(enableWebAuthnConditionalUI?has_content)?then('username webauthn', 'username')}" value=login.username!'' />
+                        <#if passwordShown>
+                            <@field.password name="password" label=msg("password") error="" forgotPassword=realm.resetPasswordAllowed autofocus=usernameHidden?? autocomplete="current-password">
+                                <#if realm.rememberMe && !usernameHidden??>
+                                    <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
+                                </#if>
+                            </@field.password>
+                        <#elseif realm.rememberMe>
+                            <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
+                        </#if>
+                    <#elseif passwordShown>
+                        <@field.password name="password" label=msg("password") forgotPassword=realm.resetPasswordAllowed autofocus=usernameHidden?? autocomplete="current-password">
+                            <#if realm.rememberMe && !usernameHidden??>
+                                <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
+                            </#if>
+                        </@field.password>
+                    </#if>
 
-    </div>
+                    <input type="hidden" id="id-hidden-input" name="credentialId" <#if auth.selectedCredential?has_content>value="${auth.selectedCredential}"</#if>/>
+                    <@buttons.actionGroup>
+                        <#if passwordShown>
+                            <@buttons.button id="kc-login" name="login" label="doLogIn" />
+                        </#if>
+                        <#if loginLink??>
+                            <button class="${passwordShown?then(properties.kcButtonSecondaryClass!, properties.kcButtonPrimaryClass!)} ${properties.kcButtonBlockClass!} al-link-button" type="submit"
+                                    id="kc-login-link" name="${loginLink.sendParameter}" value="1" formnovalidate>
+                                ${mailIcon}
+                                ${msg("loginLinkSend")}
+                            </button>
+                        </#if>
+                    </@buttons.actionGroup>
+                    <#if loginLink?? && !passwordShown>
+                        <p class="al-help">${msg("loginLinkOnlyHelp")}<#if realm.registrationAllowed && !usernameHidden??><br>${msg("loginLinkOnlyRegisterHelp")}</#if></p>
+                    </#if>
+                </form>
+            </#if>
+            </div>
+        </div>
+        <@passkeys.conditionalUIData />
+    <#elseif section = "socialProviders" >
+        <#if realm.password && social.providers?? && social.providers?has_content && step != "choice">
+            <#if step == "email" || (loginLink?? && !passwordShown)>
+                <@identityProviders.show social=social label=msg("loginLinkSocialLabel") columns=2/>
+            <#else>
+                <@identityProviders.show social=social/>
+            </#if>
+        </#if>
     <#elseif section = "info" >
-        <#if realm.password && realm.registrationAllowed && !registrationDisabled??>
+        <#-- With the login link, new users register by typing their address: no second way through the form. -->
+        <#if realm.password && realm.registrationAllowed && !registrationDisabled?? && !(loginLink??)>
             <div id="kc-registration-container">
                 <div id="kc-registration">
-                    <span>${msg("noAccount")} <a tabindex="6"
-                                                 href="${url.registrationUrl}">${msg("doRegister")}</a></span>
+                    <span>${msg("noAccount")} <a href="${url.registrationUrl}">${msg("doRegister")}</a></span>
                 </div>
-            </div>
-        </#if>
-    <#elseif section = "socialProviders" >
-        <#if realm.password && social.providers??>
-            <div id="kc-social-providers" class="${properties.kcFormSocialAccountSectionClass!}">
-                <hr/>
-                <h4>${msg("identity-provider-login-label")}</h4>
-
-                <ul class="${properties.kcFormSocialAccountListClass!} <#if social.providers?size gt 3>${properties.kcFormSocialAccountListGridClass!}</#if>">
-                    <#list social.providers as p>
-                        <a id="social-${p.alias}" class="${properties.kcFormSocialAccountListButtonClass!} <#if social.providers?size gt 3>${properties.kcFormSocialAccountGridItem!}</#if>"
-                                type="button" href="${p.loginUrl}">
-                            <#if p.iconClasses?has_content>
-                                <i class="${properties.kcCommonLogoIdP!} ${p.iconClasses!}" aria-hidden="true"></i>
-                                <span class="${properties.kcFormSocialAccountNameClass!} kc-social-icon-text">${p.displayName!}</span>
-                            <#else>
-                                <span class="${properties.kcFormSocialAccountNameClass!}">${p.displayName!}</span>
-                            </#if>
-                        </a>
-                    </#list>
-                </ul>
             </div>
         </#if>
     </#if>
