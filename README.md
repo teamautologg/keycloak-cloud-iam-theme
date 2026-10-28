@@ -37,8 +37,8 @@ below the button ends that login at once; the waiting page says so. (Number matc
 
 On desktops the waiting page offers *Gmail öffnen* / *Outlook öffnen* as its main button for the address
 (Outlook on Windows and macOS: the app through `ms-outlook:` - the new Outlook for Windows and Outlook
-for Mac register it, classic Outlook does not - with *oder Outlook im Browser öffnen* below; else
-the web mailbox in a new tab):
+for Mac register it, classic Outlook does not, so there the button does nothing (no browser link by
+decision, 28.10.2026); else the web mailbox in a new tab):
 known consumer domains directly, company domains by their MX records (Microsoft 365, Google
 Workspace; looked up with a 0.5 s timeout, cached 6 h). Gmail opens on a search for our sender, spam
 included. Not on phones: there the login runs in the app's in-app browser, where a link would leave

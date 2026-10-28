@@ -28,16 +28,13 @@
 
             <#if loginLinkSent.mailboxUrl?has_content>
                 <div class="al-mailbox">
-                    <#if loginLinkSent.mailboxWebUrl?has_content>
+                    <#if loginLinkSent.mailboxApp>
                         <#-- The desktop app (ms-outlook:); a custom scheme leaves this page where it is. -->
                         <a id="al-open-mailbox" class="${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} al-mailbox-button"
                            href="${loginLinkSent.mailboxUrl}">
                             <svg class="al-link-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg>
                             ${msg("loginLinkOpenMailbox", loginLinkSent.mailboxName)}
                         </a>
-                        <p class="al-help al-tight">
-                            <a id="al-open-mailbox-web" href="${loginLinkSent.mailboxWebUrl}" target="_blank" rel="noopener noreferrer">${msg("loginLinkOpenMailboxWeb", loginLinkSent.mailboxName)}</a>
-                        </p>
                     <#else>
                         <#-- New tab: this page has to stay open to finish the login. -->
                         <a id="al-open-mailbox" class="${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} al-mailbox-button"

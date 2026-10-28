@@ -17,7 +17,7 @@ public class LoginLinkSentBean {
     private final boolean denied;
     private final String mailboxName;
     private final String mailboxUrl;
-    private final String mailboxWebUrl;
+    private final boolean mailboxApp;
 
     LoginLinkSentBean(String identifier, String statusUrl, int codeLength, long expiresInSeconds,
                       long resendAvailableInSeconds, String back, boolean denied,
@@ -32,7 +32,7 @@ public class LoginLinkSentBean {
         boolean app = mailbox != null && desktop && mailbox.appUrl() != null;
         this.mailboxName = mailbox == null ? "" : mailbox.name();
         this.mailboxUrl = mailbox == null ? "" : app ? mailbox.appUrl() : mailbox.url();
-        this.mailboxWebUrl = app ? mailbox.url() : "";
+        this.mailboxApp = app;
     }
 
     /** Web mailbox for the address ("Gmail"), empty when unknown or on a phone. */
@@ -45,9 +45,9 @@ public class LoginLinkSentBean {
         return mailboxUrl;
     }
 
-    /** The web mailbox as the second way when the main button opens the app; else empty. */
-    public String getMailboxWebUrl() {
-        return mailboxWebUrl;
+    /** The button opens the desktop app (ms-outlook:), not a web mailbox in a new tab. */
+    public boolean isMailboxApp() {
+        return mailboxApp;
     }
 
     /** The recipient refused the login on the confirm page. */
