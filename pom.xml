@@ -74,7 +74,7 @@
                 </excludes>
             </resource>
             <resource>
-                <!-- assetVersion=${project.version} in the login theme -->
+                <!-- assetVersion=@project.version@ in the login theme -->
                 <directory>src/main/resources</directory>
                 <filtering>true</filtering>
                 <includes>

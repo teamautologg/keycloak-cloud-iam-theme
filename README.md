@@ -33,7 +33,10 @@ Opening the link does nothing by itself; *Ja, anmelden* is a POST. Mail scanners
 in advance (Defender Safe Links etc.) can therefore not complete a login someone else started, and
 the confirm page shows when and from which browser the login was requested. *Das war ich nicht*
 below the button ends that login at once; the waiting page says so. (Number matching was tried on
-28.10.2026 and taken out again: too complicated.)
+28.10.2026 and taken out again: too complicated.) The confirm button posts in the background, so the
+tab keeps a single history entry and closes itself after "Dieses Fenster schließt sich gleich."
+(Chromium 88+, Firefox; iOS Safari does not let pages close tabs - there it says the page can be
+closed). Without JavaScript the form posts as usual.
 
 On desktops the waiting page offers *Gmail öffnen* / *Outlook öffnen* as its main button for the address
 (Outlook on Windows and macOS: the app through `ms-outlook:` - the new Outlook for Windows and Outlook
