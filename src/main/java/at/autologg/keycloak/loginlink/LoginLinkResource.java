@@ -88,13 +88,16 @@ public class LoginLinkResource {
         if (expired(link.get(LoginLink.LINK_EXPIRES_AT))) {
             return render(LoginLinkConfirmBean.invalid("loginLinkExpired"), null);
         }
-        UserModel user = session.users().getUserById(realm, link.get(LoginLink.LINK_USER));
-        if (user == null || !user.isEnabled()) {
+        String register = link.get(LoginLink.LINK_REGISTER);
+        UserModel user = register != null ? null : session.users().getUserById(realm, link.get(LoginLink.LINK_USER));
+        if (register == null && (user == null || !user.isEnabled())) {
             return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), null);
         }
         long minutesAgo = Math.max(0, (Time.currentTimeSeconds() - parseLong(link.get(LoginLink.LINK_CREATED_AT))) / 60);
-        return render(LoginLinkConfirmBean.confirm(selfUrl(realm), key, LoginLinkSecrets.maskEmail(user.getEmail()),
-                minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS), choices(link)), user);
+        String address = register != null ? register : user.getEmail();
+        return render(LoginLinkConfirmBean.confirm(selfUrl(realm), key, LoginLinkSecrets.maskEmail(address),
+                minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS), choices(link))
+                .registering(register != null), user);
     }
 
     /**
@@ -121,8 +124,9 @@ public class LoginLinkResource {
         if (now > expiresAt) {
             return render(LoginLinkConfirmBean.invalid("loginLinkExpired"), null);
         }
-        UserModel user = session.users().getUserById(realm, link.get(LoginLink.LINK_USER));
-        if (user == null || !user.isEnabled()) {
+        String register = link.get(LoginLink.LINK_REGISTER);
+        UserModel user = register != null ? null : session.users().getUserById(realm, link.get(LoginLink.LINK_USER));
+        if (register == null && (user == null || !user.isEnabled())) {
             return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), null);
         }
 
@@ -132,9 +136,10 @@ public class LoginLinkResource {
         AuthenticationSessionModel waiting = root == null || client == null
                 ? null
                 : root.getAuthenticationSession(client, link.get(LoginLink.LINK_TAB));
-        if (waiting == null
-                || !LoginLink.STATE_SENT.equals(waiting.getAuthNote(LoginLink.NOTE_STATE))
-                || !user.getId().equals(waiting.getAuthNote(LoginLink.NOTE_USER))) {
+        boolean sameRequest = register != null
+                ? register.equals(waiting == null ? null : waiting.getAuthNote(LoginLink.NOTE_REGISTER))
+                : waiting != null && user.getId().equals(waiting.getAuthNote(LoginLink.NOTE_USER));
+        if (waiting == null || !LoginLink.STATE_SENT.equals(waiting.getAuthNote(LoginLink.NOTE_STATE)) || !sameRequest) {
             return render(LoginLinkConfirmBean.invalid("loginLinkSessionGone"), user);
         }
 
@@ -142,15 +147,18 @@ public class LoginLinkResource {
         boolean refused = deny != null;
         if (refused || (expected != null && !expected.equals(match == null ? null : match.trim()))) {
             waiting.setAuthNote(LoginLink.NOTE_DENIED, refused ? "refused" : "wrong number");
-            LOG.infof("Login link %s for user %s in realm %s", refused ? "refused" : "confirmed with a wrong number",
-                    user.getId(), realm.getName());
+            LOG.infof("Login link %s for %s in realm %s", refused ? "refused" : "confirmed with a wrong number",
+                    user != null ? "user " + user.getId() : "a new account", realm.getName());
             return render(LoginLinkConfirmBean.denied(refused ? "loginLinkDeniedText" : "loginLinkWrongNumber"), user);
         }
 
         session.singleUseObjects().put(LoginLink.confirmedKey(root.getId(), link.get(LoginLink.LINK_TAB)),
-                Math.max(1, expiresAt - now), Map.of(LoginLink.CONFIRMED_USER, user.getId()));
-        LOG.debugf("Login link confirmed for user %s in realm %s", user.getId(), realm.getName());
-        return render(LoginLinkConfirmBean.done(LoginLinkSecrets.maskEmail(user.getEmail())), user);
+                Math.max(1, expiresAt - now), register != null
+                        ? Map.of(LoginLink.CONFIRMED_USER, "", LoginLink.CONFIRMED_REGISTER, register)
+                        : Map.of(LoginLink.CONFIRMED_USER, user.getId()));
+        LOG.debugf("Login link confirmed in realm %s", realm.getName());
+        String address = register != null ? register : user.getEmail();
+        return render(LoginLinkConfirmBean.done(LoginLinkSecrets.maskEmail(address)).registering(register != null), user);
     }
 
     private Response render(LoginLinkConfirmBean bean, UserModel user) {

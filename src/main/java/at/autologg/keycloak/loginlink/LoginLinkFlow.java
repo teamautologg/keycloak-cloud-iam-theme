@@ -21,6 +21,8 @@ import org.keycloak.common.util.Time;
 import org.keycloak.credential.CredentialModel;
 import org.keycloak.email.EmailException;
 import org.keycloak.email.EmailTemplateProvider;
+import org.keycloak.events.Details;
+import org.keycloak.events.EventType;
 import org.keycloak.events.Errors;
 import org.keycloak.forms.login.LoginFormsProvider;
 import org.keycloak.models.FederatedIdentityModel;
@@ -31,7 +33,10 @@ import org.keycloak.models.SingleUseObjectProvider;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.utils.FormMessage;
 import org.keycloak.models.utils.KeycloakModelUtils;
+import org.keycloak.models.RoleModel;
 import org.keycloak.models.UserSessionModel;
+import org.keycloak.models.light.LightweightUserAdapter;
+import org.keycloak.services.validation.Validation;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
@@ -140,6 +145,14 @@ final class LoginLinkFlow {
         long now = Time.currentTimeSeconds();
         String typed = identifier == null ? "" : identifier.trim();
 
+        if (config.isExcludedDomain(typed)) {
+            // Depends on the domain only, not on an account: tells nothing about who has one.
+            context.getEvent().error(Errors.NOT_ALLOWED);
+            clear();
+            context.challenge(loginPage.withError("loginLinkDomainExcluded"));
+            return;
+        }
+
         Long lastSent = longNote(LoginLink.NOTE_SENT_AT);
         if (isWaiting() && lastSent != null && now - lastSent < config.resendCooldownSeconds) {
             context.challenge(waitingPage(null, null, "loginLinkResendTooSoon"));
@@ -165,7 +178,8 @@ final class LoginLinkFlow {
         }
 
         UserModel user = knownUser != null ? knownUser : findUser(session, realm, typed);
-        String refusal = refusal(session, realm, user);
+        String register = user == null ? registrationAddress(realm, typed) : null;
+        String refusal = register != null ? null : refusal(session, realm, user);
         long ttl = ttlSeconds(realm);
         String code = LoginLinkSecrets.newCode(config.codeLength);
 
@@ -178,6 +192,7 @@ final class LoginLinkFlow {
         authSession.setAuthNote(LoginLink.NOTE_CODE_HASH, LoginLinkSecrets.sha256(code));
         authSession.removeAuthNote(LoginLink.NOTE_TOKEN_HASH);
         authSession.removeAuthNote(LoginLink.NOTE_DENIED);
+        authSession.removeAuthNote(LoginLink.NOTE_REGISTER);
         String match = LoginLinkSecrets.newMatchNumber();
         authSession.setAuthNote(LoginLink.NOTE_MATCH, match);
         if (knownUser == null && !typed.isEmpty()) {
@@ -200,7 +215,10 @@ final class LoginLinkFlow {
 
         Map<String, String> link = new HashMap<>();
         link.put(LoginLink.LINK_REALM, realm.getId());
-        link.put(LoginLink.LINK_USER, user.getId());
+        link.put(LoginLink.LINK_USER, user == null ? "" : user.getId());
+        if (register != null) {
+            link.put(LoginLink.LINK_REGISTER, register);
+        }
         link.put(LoginLink.LINK_ROOT_SESSION, authSession.getParentSession().getId());
         link.put(LoginLink.LINK_TAB, authSession.getTabId());
         link.put(LoginLink.LINK_CLIENT, authSession.getClient().getId());
@@ -215,20 +233,26 @@ final class LoginLinkFlow {
         link.put(LoginLink.LINK_MATCH, match);
         link.put(LoginLink.LINK_CHOICES, String.join(",", LoginLinkSecrets.matchChoices(match)));
         store.put(LoginLink.linkKey(tokenHash), ttl, link);
-        authSession.setAuthNote(LoginLink.NOTE_USER, user.getId());
+        authSession.setAuthNote(LoginLink.NOTE_USER, user == null ? "" : user.getId());
+        if (register != null) {
+            authSession.setAuthNote(LoginLink.NOTE_REGISTER, register);
+        }
         authSession.setAuthNote(LoginLink.NOTE_TOKEN_HASH, tokenHash);
 
+        String recipient = user != null ? user.getId() : "new account";
         try {
-            sendEmail(session, realm, authSession, user, token, code, ttl, browser, operatingSystem);
+            sendEmail(session, realm, authSession, user, register, token, code, ttl, browser, operatingSystem);
         } catch (EmailException e) {
-            LOG.warnf(e, "Login link e-mail to user %s in realm %s failed", user.getId(), realm.getName());
+            LOG.warnf(e, "Login link e-mail to %s in realm %s failed", recipient, realm.getName());
             clear();
-            context.getEvent().user(user);
+            if (user != null) {
+                context.getEvent().user(user);
+            }
             context.getEvent().error(Errors.EMAIL_SEND_FAILED);
             context.challenge(loginPage.withError("loginLinkEmailFailed"));
             return;
         }
-        LOG.debugf("Login link sent to user %s in realm %s", user.getId(), realm.getName());
+        LOG.debugf("Login link sent to %s in realm %s", recipient, realm.getName());
         context.challenge(waitingPage(null, null, null));
     }
 
@@ -270,6 +294,11 @@ final class LoginLinkFlow {
             succeed(user, "code");
             return;
         }
+        String register = note(LoginLink.NOTE_REGISTER);
+        if (user == null && register != null && LoginLinkSecrets.matchesHash(note(LoginLink.NOTE_CODE_HASH), code)) {
+            succeedRegistration(register, "code");
+            return;
+        }
 
         authSession.setAuthNote(LoginLink.NOTE_ATTEMPTS, String.valueOf(attempts + 1));
         if (failuresKey != null) {
@@ -287,6 +316,11 @@ final class LoginLinkFlow {
         AuthenticationSessionModel authSession = context.getAuthenticationSession();
         Map<String, String> confirmation = context.getSession().singleUseObjects()
                 .remove(LoginLink.confirmedKey(authSession.getParentSession().getId(), authSession.getTabId()));
+        String register = note(LoginLink.NOTE_REGISTER);
+        if (confirmation != null && register != null && register.equals(confirmation.get(LoginLink.CONFIRMED_REGISTER))) {
+            succeedRegistration(register, "link");
+            return;
+        }
         String userId = note(LoginLink.NOTE_USER);
         if (confirmation == null || userId == null || userId.isEmpty()
                 || !userId.equals(confirmation.get(LoginLink.CONFIRMED_USER))) {
@@ -307,7 +341,8 @@ final class LoginLinkFlow {
         dropLink(context.getSession().singleUseObjects(), authSession);
         for (String note : List.of(LoginLink.NOTE_STATE, LoginLink.NOTE_USER, LoginLink.NOTE_IDENTIFIER,
                 LoginLink.NOTE_CODE_HASH, LoginLink.NOTE_EXPIRES_AT, LoginLink.NOTE_ATTEMPTS,
-                LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_MATCH, LoginLink.NOTE_DENIED)) {
+                LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_MATCH, LoginLink.NOTE_DENIED,
+                LoginLink.NOTE_REGISTER)) {
             authSession.removeAuthNote(note);
         }
     }
@@ -330,6 +365,61 @@ final class LoginLinkFlow {
         context.getEvent().detail(LoginLink.EVENT_DETAIL, method);
         context.setUser(user);
         context.success();
+    }
+
+    /**
+     * The link of an unknown address was confirmed: creates the account as Keycloak's registration
+     * form would (default roles and required actions, REGISTER event), with the address verified and
+     * no password, and asks for the name next. If the address got an account in the meantime (e.g.
+     * through Google), the link proves the mailbox and logs into that one.
+     */
+    private void succeedRegistration(String address, String method) {
+        KeycloakSession session = context.getSession();
+        RealmModel realm = context.getRealm();
+        UserModel existing = findUser(session, realm, address);
+        if (existing != null) {
+            succeed(existing, method);
+            return;
+        }
+        if (!realm.isRegistrationAllowed() || config.isExcludedDomain(address)) {
+            clear();
+            context.challenge(loginPage.withError("loginLinkInvalid"));
+            return;
+        }
+        UserModel user;
+        try {
+            // Like the registration form: default roles and default required actions come with it.
+            user = session.users().addUser(realm, address);
+        } catch (ModelDuplicateException e) {
+            // Created a moment ago by a parallel request: that is the account to log into.
+            UserModel parallel = findUser(session, realm, address);
+            if (parallel == null) {
+                throw e;
+            }
+            succeed(parallel, method);
+            return;
+        }
+        user.setEnabled(true);
+        user.setEmail(address);
+        user.setEmailVerified(true);
+        user.removeRequiredAction(UserModel.RequiredAction.VERIFY_EMAIL);
+        // First and last name, as the registration form asks for them.
+        user.addRequiredAction(UserModel.RequiredAction.UPDATE_PROFILE);
+        context.getEvent().clone().event(EventType.REGISTER).user(user)
+                .detail(Details.USERNAME, address)
+                .detail(Details.EMAIL, address)
+                .detail(Details.REGISTER_METHOD, LoginLink.REGISTER_METHOD)
+                .success();
+        LOG.infof("Login link created user %s in realm %s", user.getId(), realm.getName());
+        succeed(user, method);
+    }
+
+    /** The address to create an account for, or null: only e-mail addresses, only if the realm lets people register. */
+    private String registrationAddress(RealmModel realm, String typed) {
+        if (!realm.isRegistrationAllowed() || !Validation.isEmailValid(typed) || config.isExcludedDomain(typed)) {
+            return null;
+        }
+        return typed.trim().toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -405,8 +495,14 @@ final class LoginLinkFlow {
     }
 
     private void sendEmail(KeycloakSession session, RealmModel realm, AuthenticationSessionModel authSession,
-                           UserModel user, String token, String code, long ttl,
+                           UserModel user, String register, String token, String code, long ttl,
                            String browser, String operatingSystem) throws EmailException {
+        if (user == null) {
+            // Not stored anywhere: only carries the address and the language for the e-mail template.
+            user = new LightweightUserAdapter(session, realm, null);
+            user.setUsername(register);
+            user.setEmail(register);
+        }
         UriBuilder link = UriBuilder.fromUri(context.getUriInfo().getBaseUri())
                 .path("realms").path(realm.getName())
                 .path(LoginLinkResourceProviderFactory.ID).path("confirm")
@@ -426,11 +522,13 @@ final class LoginLinkFlow {
         if (operatingSystem != null) {
             attributes.put("operatingSystem", operatingSystem);
         }
+        attributes.put("register", register != null);
         session.getProvider(EmailTemplateProvider.class)
                 .setRealm(realm)
                 .setUser(user)
                 .setAuthenticationSession(authSession)
-                .send(LoginLink.EMAIL_SUBJECT, List.of(), LoginLink.EMAIL_TEMPLATE, attributes);
+                .send(register != null ? LoginLink.EMAIL_SUBJECT_REGISTER : LoginLink.EMAIL_SUBJECT, List.of(),
+                        LoginLink.EMAIL_TEMPLATE, attributes, user.getEmail());
     }
 
     private String refusal(KeycloakSession session, RealmModel realm, UserModel user) {
@@ -448,6 +546,15 @@ final class LoginLinkFlow {
         }
         if (AuthenticatorUtils.getDisabledByBruteForceEventError(context, user) != null) {
             return "locked by brute force protection";
+        }
+        for (String roleName : config.excludedRoles) {
+            RoleModel role = realm.getRole(roleName);
+            if (role != null && user.hasRole(role)) {
+                return "user has the excluded role " + roleName;
+            }
+        }
+        if (config.isExcludedDomain(user.getEmail())) {
+            return "address of an excluded domain";
         }
         if (!config.excludedIdentityProviders.isEmpty()
                 && session.users().getFederatedIdentitiesStream(realm, user)

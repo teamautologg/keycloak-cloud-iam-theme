@@ -27,6 +27,8 @@ final class LoginLink {
     static final String NOTE_MATCH = "autologg.loginLink.match";
     /** Set by the confirm endpoint when the recipient denied or picked a wrong number. */
     static final String NOTE_DENIED = "autologg.loginLink.denied";
+    /** Address of the account the link creates (unknown address, registration allowed). */
+    static final String NOTE_REGISTER = "autologg.loginLink.register";
 
     // Single-use store.
     static final String LINK_PREFIX = "autologg-login-link:";
@@ -48,7 +50,9 @@ final class LoginLink {
     static final String LINK_OS = "os";
     static final String LINK_MATCH = "match";
     static final String LINK_CHOICES = "choices";
+    static final String LINK_REGISTER = "register";
     static final String CONFIRMED_USER = "user";
+    static final String CONFIRMED_REGISTER = "register";
 
     // Form parameters of the login and waiting pages.
     static final String FORM_SEND = "loginLink";
@@ -69,6 +73,7 @@ final class LoginLink {
     static final String TEMPLATE_CONFIRM = "login-link-confirm.ftl";
     static final String EMAIL_TEMPLATE = "login-link.ftl";
     static final String EMAIL_SUBJECT = "loginLinkEmailSubject";
+    static final String EMAIL_SUBJECT_REGISTER = "loginLinkRegisterEmailSubject";
     static final String ATTR_LOGIN_FORM = "loginLink";
     static final String ATTR_SENT = "loginLinkSent";
     static final String ATTR_CONFIRM = "loginLinkConfirm";
@@ -77,6 +82,8 @@ final class LoginLink {
     static final String EVENT_DETAIL = "login_link";
     /** Event detail when the login verified the address and removed what was set up before. */
     static final String EVENT_DETAIL_RESET = "login_link_reset";
+    /** register_method of the REGISTER event for accounts created through the link. */
+    static final String REGISTER_METHOD = "login_link";
 
     /** Wrong codes per user and hour across all sessions before codes stop working for that hour. */
     static final int MAX_FAILURES_PER_HOUR = 20;

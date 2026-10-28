@@ -24,7 +24,11 @@ Examples
   python scripts/setup_login_link_flow.py --server https://id.autologg.com/auth --realm staging-autologg \\
       --admin-user thomas.jetzinger --otp --apply
   python scripts/setup_login_link_flow.py ... --config excludedIdentityProviders=entra-acme --apply
-  python scripts/setup_login_link_flow.py ... --config passwordLogin=false --apply   # link only, no password
+  python scripts/setup_login_link_flow.py ... --config passwordLogin=true --apply    # password next to the link
+  python scripts/setup_login_link_flow.py ... --config excludedDomains=pharmatechnik.de --apply
+
+On a realm that already uses the login-link forms, --config changes the execution config.
+A realm role microsoft-login-only is excluded automatically (excludedRoles).
   python scripts/setup_login_link_flow.py ... --bind-flow browser --apply      # roll back
 """
 import argparse
@@ -44,8 +48,11 @@ REPLACEMENTS = {
 THEME = "autologg"
 CONFIG_KEYS = {
     "linkTtlMinutes", "codeLength", "maxCodeAttempts", "resendCooldownSeconds",
-    "maxSendsPerHour", "excludedIdentityProviders", "markEmailVerified", "passwordLogin",
+    "maxSendsPerHour", "maxSendsPerIpPerHour", "excludedIdentityProviders", "markEmailVerified",
+    "passwordLogin", "emailFirst", "excludedRoles", "excludedDomains",
 }
+# Users of this realm role sign in with Microsoft only (Tools/keycloak-entra/setup_microsoft_login_only.py).
+MICROSOFT_ONLY_ROLE = "microsoft-login-only"
 
 
 class KeycloakError(Exception):
@@ -131,6 +138,14 @@ class Api:
 
     def get(self, path):
         return self.call("GET", path)[0]
+
+    def get_or_none(self, path):
+        try:
+            return self.get(path)
+        except KeycloakError as e:
+            if "-> 404" in str(e):
+                return None
+            raise
 
     def executions(self, flow_alias):
         return self.get(f"/authentication/flows/{quote(flow_alias)}/executions")
@@ -218,11 +233,15 @@ def setup(api, args):
           f"e-mail theme {realm.get('emailTheme')!r}")
     print_flow(executions)
     config = parse_config(args.config)
+    if "excludedRoles" not in config and api.get_or_none(f"/roles/{quote(MICROSOFT_ONLY_ROLE)}") is not None:
+        config["excludedRoles"] = MICROSOFT_ONLY_ROLE
+        print(f"\nRealm role {MICROSOFT_ONLY_ROLE} exists: its users get no login e-mail (excludedRoles).")
     print_identity_providers(api, config)
+    print(f"\nRegistration: {'new addresses register through the link' if realm.get('registrationAllowed') else 'off (realm)'}")
 
     ours = [e for e in executions if e.get("providerId") in REPLACEMENTS.values()]
     if ours:
-        print("\nThe bound flow already uses the login-link forms; nothing to do.")
+        update_config(api, args, ours, config)
         return
     targets = [(i, e) for i, e in enumerate(executions) if e.get("providerId") in REPLACEMENTS]
     if not targets:
@@ -269,6 +288,42 @@ def setup(api, args):
     bind(api, args.realm, new_alias, True)
     print("\nNew flow:")
     print_flow(api.executions(new_alias))
+
+
+def update_config(api, args, executions, config):
+    """The bound flow already uses our forms: merge --config (and the automatic keys) into their config."""
+    plan = []
+    for execution in executions:
+        current = {}
+        if execution.get("authenticationConfig"):
+            current = (api.get(f"/authentication/config/{execution['authenticationConfig']}") or {}).get("config") or {}
+        changed = {k: v for k, v in config.items() if current.get(k) != v}
+        print(f"\n{execution['displayName']}: config {current or '(defaults)'}")
+        if changed:
+            plan.append((execution, changed))
+    if not plan:
+        print("\nThe bound flow already uses the login-link forms with this config; nothing to do.")
+        return
+    print("\nPlan:")
+    for execution, changed in plan:
+        print(f"  - {execution['displayName']}: set {changed}")
+    if not args.apply:
+        print("\nDry run - nothing changed. Run again with --apply.")
+        return
+    if not args.yes:
+        answer = input(f"\nApply this plan to realm {args.realm}? [y/N] ").strip().lower()
+        if answer not in ("y", "yes", "j", "ja"):
+            print("Nothing changed.")
+            return
+    for execution, changed in plan:
+        if execution.get("authenticationConfig"):
+            rep = api.get(f"/authentication/config/{execution['authenticationConfig']}")
+            rep["config"] = {**(rep.get("config") or {}), **changed}
+            api.call("PUT", f"/authentication/config/{execution['authenticationConfig']}", rep)
+        else:
+            api.call("POST", f"/authentication/executions/{execution['id']}/config",
+                     {"alias": f"login-link-{execution['id'][:8]}", "config": changed})
+        print(f"  {execution['displayName']}: config updated")
 
 
 def replace_forms(api, new_alias, config):

@@ -4,7 +4,7 @@
 <!-- template: login-link-confirm.ftl -->
     <#if section = "header">
         <#if loginLinkConfirm.state == "confirm">
-            ${msg("loginLinkConfirmTitle")}
+            ${msg(loginLinkConfirm.register?then("loginLinkRegisterConfirmTitle", "loginLinkConfirmTitle"))}
         <#elseif loginLinkConfirm.state == "done">
             ${msg("loginLinkConfirmedTitle")}
         <#elseif loginLinkConfirm.state == "denied">
@@ -15,7 +15,7 @@
     <#elseif section = "form">
         <div class="al-link-confirm" data-state="${loginLinkConfirm.state}">
         <#if loginLinkConfirm.state == "confirm">
-            <p class="al-text">${msg("loginLinkConfirmText")} <strong class="al-nowrap">${loginLinkConfirm.email}</strong></p>
+            <p class="al-text">${msg(loginLinkConfirm.register?then("loginLinkRegisterConfirmText", "loginLinkConfirmText"))} <strong class="al-nowrap">${loginLinkConfirm.email}</strong></p>
             <dl class="al-request">
                 <div>
                     <dt>${msg("loginLinkConfirmRequested")}</dt>

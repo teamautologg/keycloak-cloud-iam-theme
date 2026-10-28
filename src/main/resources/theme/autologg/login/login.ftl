@@ -10,7 +10,7 @@
 <#assign step = (loginLink??)?then(loginLink.step, "single")>
 <#assign passwordShown = !(loginLink??) || loginLink.passwordAvailable>
 <#assign mailIcon><svg class="al-link-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg></#assign>
-<@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled?? && step != "choice"; section>
+<@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled?? && !(loginLink??); section>
 <!-- template: login.ftl -->
 
     <#if section = "beforeHeader">
@@ -100,9 +100,6 @@
                 </#if>
             <#elseif realm.password>
                 <form id="kc-form-login" class="${properties.kcFormClass!}" onsubmit="if (this.login) { this.login.disabled = true; } return true;" action="${url.loginAction}" method="post" novalidate="novalidate">
-                    <#if !passwordShown>
-                        <p class="al-text al-muted">${msg("loginLinkPasswordOffIntro")}</p>
-                    </#if>
                     <#if !usernameHidden??>
                         <#assign label>
                             <#if !realm.loginWithEmailAllowed>${msg("username")}<#elseif !realm.registrationEmailAsUsername>${msg("usernameOrEmail")}<#else>${msg("email")}</#if>
@@ -139,6 +136,9 @@
                             </button>
                         </#if>
                     </@buttons.actionGroup>
+                    <#if loginLink?? && !passwordShown>
+                        <p class="al-help">${msg("loginLinkOnlyHelp")}<#if realm.registrationAllowed && !usernameHidden??><br>${msg("loginLinkOnlyRegisterHelp")}</#if></p>
+                    </#if>
                 </form>
             </#if>
             </div>
@@ -146,14 +146,15 @@
         <@passkeys.conditionalUIData />
     <#elseif section = "socialProviders" >
         <#if realm.password && social.providers?? && social.providers?has_content && step != "choice">
-            <#if step == "email">
+            <#if step == "email" || (loginLink?? && !passwordShown)>
                 <@identityProviders.show social=social label=msg("loginLinkSocialLabel") columns=2/>
             <#else>
                 <@identityProviders.show social=social/>
             </#if>
         </#if>
     <#elseif section = "info" >
-        <#if realm.password && realm.registrationAllowed && !registrationDisabled??>
+        <#-- With the login link, new users register by typing their address: no second way through the form. -->
+        <#if realm.password && realm.registrationAllowed && !registrationDisabled?? && !(loginLink??)>
             <div id="kc-registration-container">
                 <div id="kc-registration">
                     <span>${msg("noAccount")} <a href="${url.registrationUrl}">${msg("doRegister")}</a></span>

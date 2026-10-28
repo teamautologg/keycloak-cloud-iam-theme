@@ -53,10 +53,24 @@ the waiting page. The button depends on the domain only, not on whether an accou
 Both forms keep everything of Keycloak's forms (password, remember me, passkeys, brute force
 protection). Users without a password get the e-mail option only on the password step.
 
-Password login can be switched off per execution (`passwordLogin=false`): the login page then asks
-for the address only, the link button becomes the main button, and posted passwords are ignored -
-every post sends the link. This covers the browser login only; the API's password grant (direct
-grant flow) and the registration form are separate.
+Where the login link is active, signing in and registering go through the link only (Thomas,
+28.10.2026): by default (`passwordLogin=false`) the login page asks for the address only, the link
+button is the main button, and posted passwords are ignored - every post sends the link. Social
+logins and passkeys stay. `passwordLogin=true` offers the password next to the link (e-mail first:
+page two with both). This covers the browser login only; the API's password grant (direct grant
+flow) is separate.
+
+Registration: if the realm lets people register, an unknown address gets an e-mail *Dein
+AutoLogg-Konto anlegen* instead of nothing - same waiting page, same number matching. Confirming
+creates the account the way Keycloak's registration form would (default roles and required
+actions, REGISTER event with `register_method=login_link`), with the address verified and no
+password, and Keycloak then asks for first and last name (*Update Profile*). Nothing is created
+before the confirmation. The login page no longer links to Keycloak's registration form.
+
+Excluded: users of the realm role in `excludedRoles` (the setup script sets `microsoft-login-only`
+when the realm has it) get no e-mail; addresses of `excludedDomains` (e.g. `pharmatechnik.de`) get
+neither a login nor a registration e-mail, and the page tells them to use *Mit Microsoft anmelden*
+(depends on the domain only, not on an account).
 
 ### Limits and safety
 
@@ -67,8 +81,8 @@ grant flow) and the registration form are separate.
 - E-mails: at most one per address every 30 seconds and 10 per hour, and at most 30 requests per
   public IP address and hour across all addresses (private addresses - a proxy without forwarded
   headers - are not limited; Keycloak logs that once).
-- Unknown addresses, disabled or locked users, users without e-mail and users of excluded identity
-  providers get no e-mail. The page looks the same, so it does not tell which addresses have an
+- Disabled or locked users, users without e-mail, users of excluded identity providers or roles,
+  and unknown addresses when the realm does not allow registration get no e-mail. The page looks the same, so it does not tell which addresses have an
   account (sending makes the response slower, as with Keycloak's password reset).
 - A login through the e-mail proves the address: it is marked verified and a pending
   *Verify Email* action is dropped. If the address was not verified before, everything set up on
@@ -92,8 +106,10 @@ Optional, on the execution (Authentication -> flow -> gear icon). Without a conf
 | `maxSendsPerIpPerHour` | 30 | e-mail requests per public IP address and hour |
 | `excludedIdentityProviders` | - | IdP aliases whose users keep signing in through the IdP (e.g. company Entra ID tenants) |
 | `markEmailVerified` | true | mark the address verified after a login through the e-mail |
-| `passwordLogin` | true | `false`: the pages ask for the address only and send the link; the form accepts no password (passkeys still work) |
-| `emailFirst` | true | Username Password Form: page one asks for the address, page two offers link or password |
+| `passwordLogin` | false | `false`: the pages ask for the address only and send the link; the form accepts no password (passkeys still work). `true`: password next to the link |
+| `emailFirst` | true | with `passwordLogin=true`: page one asks for the address, page two offers link or password |
+| `excludedRoles` | - | realm roles whose users get no e-mail (e.g. `microsoft-login-only`) |
+| `excludedDomains` | - | e-mail domains (subdomains included) without login or registration e-mail |
 
 ### Rollout per realm
 

@@ -199,7 +199,7 @@ def configure_execution(token, realm, extra=None):
     executions = call("GET", f"/authentication/flows/{urllib.parse.quote(flow, safe='')}/executions")
     ours = next(e for e in executions if e.get("providerId", "").startswith("autologg-"))
     config = {"resendCooldownSeconds": str(COOLDOWN_SECONDS), "maxSendsPerHour": "100", "maxSendsPerIpPerHour": "100",
-              **(extra or {})}
+              "passwordLogin": "true", **(extra or {})}
     if ours.get("authenticationConfig"):
         current = call("GET", f"/authentication/config/{ours['authenticationConfig']}")
         current["config"].update(config)
@@ -375,7 +375,7 @@ def scenarios(realm, identifier_first, organization=False):
     if not identifier_first or organization:
         # The Username Form of the identifier-first flow rejects unknown addresses itself; the
         # organization step passes them on with the address field hidden, like known ones.
-        print("\n[6] unknown address looks the same, sends nothing")
+        print("\n[6] unknown address looks the same, gets the registration e-mail")
         clear_mails()
         desk = Browser("desk", DESKTOP_UA)
         if organization:
@@ -384,10 +384,13 @@ def scenarios(realm, identifier_first, organization=False):
                   "unknown address reaches the second step with the address hidden")
         page = send_link(desk, realm, "niemand@autologg.local", identifier_first)
         check("kc-login-link-code-form" in page.forms, "waiting page shown for unknown address")
-        time.sleep(2)
-        check(not mails_to("niemand@autologg.local"), "no e-mail for unknown address")
-        desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": "123456"})
-        check("Der Code stimmt nicht" in desk.html, "any code is wrong for unknown address")
+        subject, _ = latest_mail_message("niemand@autologg.local")
+        check(subject == "Dein AutoLogg-Konto anlegen", "unknown address gets the e-mail to create an account")
+        _, code, _ = latest_mail("niemand@autologg.local")
+        wrong = str((int(code) + 1) % 1000000).zfill(6)
+        desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": wrong})
+        check("Der Code stimmt nicht" in desk.html, "a wrong code is rejected")
+        check(not admin_call(realm, "GET", "/users?email=niemand%40autologg.local&exact=true"), "and creates nothing")
 
     print("\n[7] account without password")
     clear_mails()
@@ -519,6 +522,135 @@ def open_mailbox(realm, identifier_first):
           "company domain on Microsoft 365 (MX): Outlook")
     check(waiting("niemand-al5388@gmail.com", PHONE_UA) is None, "no button on a phone (in-app browser)")
     check(waiting("niemand@autologg.local", DESKTOP_UA) is None, "no button for an unknown provider")
+
+
+def latest_mail_message(address, wait=10):
+    """Subject and text of the newest e-mail to the address (Mailpit)."""
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        found = mails_to(address)
+        if found:
+            message = json.loads(urllib.request.urlopen(f"{MAILPIT}/api/v1/message/{found[0]['ID']}", timeout=10).read())
+            return message["Subject"], message["Text"]
+        time.sleep(0.5)
+    return None, None
+
+
+def finish_profile(browser, page, first="Neu", last="KONTO"):
+    """Answers Keycloak's update-profile page shown after a registration; returns True when it was shown."""
+    form = page.forms.get("kc-update-profile-form")
+    if not form:
+        return False
+    browser.submit(form, {"firstName": first, "lastName": last})
+    return True
+
+
+def delete_users(realm, address):
+    for user in admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true") or []:
+        admin_call(realm, "DELETE", f"/users/{user['id']}")
+
+
+def link_only(realm, identifier_first, organization=False):
+    print("\n[14] default: sign in and register through the link only")
+    configure_execution(admin_token(), realm, {"passwordLogin": ""})  # back to the default
+    try:
+        two_step = identifier_first or organization
+        desk = Browser("desk", DESKTOP_UA)
+        page = start_login(desk, realm)
+        if two_step:  # page one is Keycloak's (Username Form or organization step)
+            page = desk.submit(page.forms["kc-form-login"], {"username": USER_WITH_PASSWORD[0]}, "login")
+        form = page.forms["kc-form-login"]
+        check("password" not in form["fields"] and "loginLink" in form["buttons"], "no password field, link button")
+        if not two_step:
+            check("login-actions/registration" not in desk.html, "no link to the registration form")
+            check("legen wir dein Konto an" in desk.html, "page says new users just type their address")
+
+        if identifier_first:
+            return  # its Username Form stops unknown addresses before us: no registration there
+
+        print("\n[15] registration through the link")
+        address = f"neu-{secrets.token_hex(3)}@autologg.local"
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, two_step)
+        check("kc-login-link-code-form" in page.forms, "unknown address: the same waiting page")
+        subject, _ = latest_mail_message(address)
+        check(subject == "Dein AutoLogg-Konto anlegen", "e-mail asks to create the account")
+        check(not admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true"),
+              "no account before the confirmation")
+        link, _, _ = latest_mail(address)
+        phone = Browser("phone", PHONE_UA)
+        confirm = phone.open(link)
+        check("Konto anlegen" in phone.html and len(re.findall(r'name="match"', phone.html)) == 3,
+              "confirm page: create account, pick the number")
+        done = phone.submit(confirm.forms["kc-login-link-confirm-form"], {"match": match_number(desk)})
+        check(done.data_state == "done", "confirmed")
+        page = desk.submit(page.forms["kc-login-link-check-form"])
+        check(finish_profile(desk, page), "the waiting browser asks for the name")
+        check(desk.code_from_redirects() is not None, "and is logged in")
+        users = admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true")
+        check(len(users) == 1 and users[0]["emailVerified"] and users[0]["lastName"] == "KONTO",
+              "account exists, address verified, name stored")
+        credentials = admin_call(realm, "GET", f"/users/{users[0]['id']}/credentials") if users else []
+        check(not credentials, "no password")
+        delete_users(realm, address)
+
+        address = f"neu-{secrets.token_hex(3)}@autologg.local"
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, two_step)
+        _, code, _ = latest_mail(address)
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check(finish_profile(desk, page) and desk.code_from_redirects() is not None, "registration with the code")
+        delete_users(realm, address)
+
+        address = f"neu-{secrets.token_hex(3)}@autologg.local"
+        admin_call(realm, "PUT", "", {"registrationAllowed": False})
+        try:
+            clear_mails()
+            desk = Browser("desk", DESKTOP_UA)
+            page = send_link(desk, realm, address, two_step)
+            time.sleep(2)
+            check("kc-login-link-code-form" in page.forms and not mails_to(address),
+                  "realm without registration: same page, no e-mail")
+        finally:
+            admin_call(realm, "PUT", "", {"registrationAllowed": True})
+    finally:
+        configure_execution(admin_token(), realm, {"passwordLogin": "true"})
+
+
+def exclusions(realm, identifier_first, organization=False):
+    print("\n[16] excluded domain and excluded role")
+    configure_execution(admin_token(), realm, {"excludedDomains": "sperre.example", "excludedRoles": "microsoft-login-only"})
+    role = admin_call(realm, "GET", "/roles/microsoft-login-only") if any(
+        r["name"] == "microsoft-login-only" for r in admin_call(realm, "GET", "/roles")) else None
+    if role is None:
+        admin_call(realm, "POST", "/roles", {"name": "microsoft-login-only"})
+        role = admin_call(realm, "GET", "/roles/microsoft-login-only")
+    address = "nurmicrosoft@autologg.local"
+    delete_users(realm, address)
+    admin_call(realm, "POST", "/users", {"username": address, "email": address, "firstName": "Nur", "lastName": "MICROSOFT",
+                                         "enabled": True, "emailVerified": True})
+    user = admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true")[0]
+    admin_call(realm, "POST", f"/users/{user['id']}/role-mappings/realm", [role])
+    try:
+        if not identifier_first:
+            clear_mails()
+            desk = Browser("desk", DESKTOP_UA)
+            page = send_link(desk, realm, "jemand@abteilung.sperre.example", organization)
+            check("Mit Microsoft anmelden" in desk.html and "kc-login-link-code-form" not in page.forms,
+                  "excluded domain: hint to the company login, no waiting page")
+            time.sleep(2)
+            check(not mails_to("jemand@abteilung.sperre.example"), "and no e-mail")
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, identifier_first or organization)
+        check("kc-login-link-code-form" in page.forms, "user with the excluded role: the usual waiting page")
+        time.sleep(2)
+        check(not mails_to(address), "but no e-mail")
+    finally:
+        delete_users(realm, address)
+        configure_execution(admin_token(), realm, {"excludedDomains": "", "excludedRoles": ""})
 
 
 def admin_call(realm, method, path, body=None):
@@ -769,6 +901,8 @@ def main():
     ip_limit(realm, two_step)
     if not args.identifier_first:  # its Username Form stops the unknown test addresses before us
         open_mailbox(realm, two_step)
+    link_only(realm, args.identifier_first, args.organization)
+    exclusions(realm, args.identifier_first, args.organization)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
 

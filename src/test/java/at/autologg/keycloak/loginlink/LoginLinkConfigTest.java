@@ -24,7 +24,9 @@ class LoginLinkConfigTest {
         assertEquals(30, config.maxSendsPerIpPerHour);
         assertTrue(config.excludedIdentityProviders.isEmpty());
         assertTrue(config.markEmailVerified);
-        assertTrue(config.passwordLogin);
+        assertFalse(config.passwordLogin);
+        assertTrue(config.excludedRoles.isEmpty());
+        assertTrue(config.excludedDomains.isEmpty());
         assertTrue(config.emailFirst);
     }
 
@@ -34,9 +36,23 @@ class LoginLinkConfigTest {
     }
 
     @Test
-    void passwordLoginCanBeSwitchedOff() {
+    void passwordLoginIsOffUnlessSwitchedOn() {
+        assertTrue(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_LOGIN, "true"))).passwordLogin);
         assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_LOGIN, "false"))).passwordLogin);
-        assertTrue(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_LOGIN, ""))).passwordLogin);
+        assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_LOGIN, ""))).passwordLogin);
+    }
+
+    @Test
+    void excludedDomainsCoverSubdomainsOnly() {
+        LoginLinkConfig config = LoginLinkConfig.from(model(Map.of(
+                LoginLinkConfig.EXCLUDED_DOMAINS, "Pharmatechnik.de, example.org",
+                LoginLinkConfig.EXCLUDED_ROLES, "microsoft-login-only")));
+        assertTrue(config.isExcludedDomain("f.jordan@pharmatechnik.de"));
+        assertTrue(config.isExcludedDomain("F.Jordan@Mail.Pharmatechnik.DE"));
+        assertFalse(config.isExcludedDomain("someone@notpharmatechnik.de"));
+        assertFalse(config.isExcludedDomain("someone@autologg.com"));
+        assertFalse(config.isExcludedDomain("username-without-at"));
+        assertTrue(config.excludedRoles.contains("microsoft-login-only"));
     }
 
     @Test
@@ -63,7 +79,7 @@ class LoginLinkConfigTest {
 
     @Test
     void exposesAllPropertiesInTheAdminConsole() {
-        assertEquals(10, LoginLinkConfig.properties().size());
+        assertEquals(12, LoginLinkConfig.properties().size());
     }
 
     private static AuthenticatorConfigModel model(Map<String, String> values) {

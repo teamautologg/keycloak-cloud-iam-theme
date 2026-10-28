@@ -28,6 +28,8 @@ final class LoginLinkConfig {
     static final String MARK_EMAIL_VERIFIED = "markEmailVerified";
     static final String PASSWORD_LOGIN = "passwordLogin";
     static final String EMAIL_FIRST = "emailFirst";
+    static final String EXCLUDED_ROLES = "excludedRoles";
+    static final String EXCLUDED_DOMAINS = "excludedDomains";
 
     static final int DEFAULT_LINK_TTL_MINUTES = 15;
     static final int DEFAULT_CODE_LENGTH = 6;
@@ -44,10 +46,14 @@ final class LoginLinkConfig {
     final int maxSendsPerIpPerHour;
     final Set<String> excludedIdentityProviders;
     final boolean markEmailVerified;
-    /** False: the form asks for the address only and never checks a password. */
+    /** False (default): the form asks for the address only and never checks a password. */
     final boolean passwordLogin;
     /** Username Password Form: first page asks for the address, the second offers link or password. */
     final boolean emailFirst;
+    /** Users with one of these realm roles get no link (e.g. microsoft-login-only). */
+    final Set<String> excludedRoles;
+    /** Addresses of these domains (and their subdomains) get no link and cannot register through it. */
+    final Set<String> excludedDomains;
 
     private LoginLinkConfig(Map<String, String> values) {
         linkTtlMinutes = intValue(values, LINK_TTL_MINUTES, DEFAULT_LINK_TTL_MINUTES, 1, 60);
@@ -56,10 +62,12 @@ final class LoginLinkConfig {
         resendCooldownSeconds = intValue(values, RESEND_COOLDOWN_SECONDS, DEFAULT_RESEND_COOLDOWN_SECONDS, 0, 600);
         maxSendsPerHour = intValue(values, MAX_SENDS_PER_HOUR, DEFAULT_MAX_SENDS_PER_HOUR, 1, 100);
         maxSendsPerIpPerHour = intValue(values, MAX_SENDS_PER_IP_PER_HOUR, DEFAULT_MAX_SENDS_PER_IP_PER_HOUR, 1, 1000);
-        excludedIdentityProviders = aliases(values.get(EXCLUDED_IDENTITY_PROVIDERS));
+        excludedIdentityProviders = names(values.get(EXCLUDED_IDENTITY_PROVIDERS), true);
         markEmailVerified = flag(values, MARK_EMAIL_VERIFIED);
-        passwordLogin = flag(values, PASSWORD_LOGIN);
+        passwordLogin = flag(values, PASSWORD_LOGIN, false);
         emailFirst = flag(values, EMAIL_FIRST);
+        excludedRoles = names(values.get(EXCLUDED_ROLES), false);
+        excludedDomains = names(values.get(EXCLUDED_DOMAINS), true);
     }
 
     static LoginLinkConfig from(AuthenticatorConfigModel model) {
@@ -134,9 +142,9 @@ final class LoginLinkConfig {
                 .property()
                 .name(PASSWORD_LOGIN)
                 .label("Password login")
-                .helpText("Off: the page asks for the e-mail address only and sends the sign-in link; this form accepts no password (passkeys still work). Password grants of the API are a separate flow.")
+                .helpText("Off (default): the page asks for the e-mail address only and sends the sign-in link; this form accepts no password (passkeys still work). On: the password is offered next to the link. Password grants of the API are a separate flow.")
                 .type(ProviderConfigProperty.BOOLEAN_TYPE)
-                .defaultValue("true")
+                .defaultValue("false")
                 .add()
                 .property()
                 .name(EMAIL_FIRST)
@@ -145,13 +153,38 @@ final class LoginLinkConfig {
                 .type(ProviderConfigProperty.BOOLEAN_TYPE)
                 .defaultValue("true")
                 .add()
+                .property()
+                .name(EXCLUDED_ROLES)
+                .label("Roles without login link")
+                .helpText("Comma-separated realm roles (also through groups). Their users get no login e-mail, e.g. microsoft-login-only.")
+                .type(ProviderConfigProperty.STRING_TYPE)
+                .defaultValue("")
+                .add()
+                .property()
+                .name(EXCLUDED_DOMAINS)
+                .label("E-mail domains without login link")
+                .helpText("Comma-separated domains, e.g. pharmatechnik.de. Addresses there (subdomains included) get no login e-mail and cannot register through the link; the page points them to their company login.")
+                .type(ProviderConfigProperty.STRING_TYPE)
+                .defaultValue("")
+                .add()
                 .build();
     }
 
     /** Boolean option that is on unless explicitly set to false. */
     private static boolean flag(Map<String, String> values, String key) {
+        return flag(values, key, true);
+    }
+
+    private static boolean flag(Map<String, String> values, String key, boolean fallback) {
         String raw = values.get(key);
-        return raw == null || raw.isBlank() || Boolean.parseBoolean(raw.trim());
+        return raw == null || raw.isBlank() ? fallback : Boolean.parseBoolean(raw.trim());
+    }
+
+    /** Whether the address belongs to one of the excluded domains or their subdomains. */
+    boolean isExcludedDomain(String address) {
+        String domain = MailProviders.domainOf(address);
+        return domain != null && excludedDomains.stream()
+                .anyMatch(excluded -> domain.equals(excluded) || domain.endsWith("." + excluded));
     }
 
     private static int intValue(Map<String, String> values, String key, int fallback, int min, int max) {
@@ -166,14 +199,14 @@ final class LoginLinkConfig {
         }
     }
 
-    private static Set<String> aliases(String raw) {
+    private static Set<String> names(String raw, boolean lowerCase) {
         if (raw == null || raw.isBlank()) {
             return Collections.emptySet();
         }
         return Arrays.stream(raw.split("[,;\\s]+"))
                 .map(String::trim)
-                .filter(alias -> !alias.isEmpty())
-                .map(alias -> alias.toLowerCase(Locale.ROOT))
+                .filter(name -> !name.isEmpty())
+                .map(name -> lowerCase ? name.toLowerCase(Locale.ROOT) : name)
                 .collect(Collectors.toUnmodifiableSet());
     }
 }

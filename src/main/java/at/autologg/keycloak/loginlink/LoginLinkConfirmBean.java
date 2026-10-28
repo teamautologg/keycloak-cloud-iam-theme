@@ -23,6 +23,7 @@ public class LoginLinkConfirmBean {
     private final String operatingSystem;
     private final String reason;
     private final List<String> choices;
+    private boolean register;
 
     private LoginLinkConfirmBean(String state, String actionUrl, String key, String email, long minutesAgo,
                                  String browser, String operatingSystem, String reason, List<String> choices) {
@@ -88,6 +89,16 @@ public class LoginLinkConfirmBean {
 
     public String getReason() {
         return reason;
+    }
+
+    /** The link creates a new account. */
+    public boolean isRegister() {
+        return register;
+    }
+
+    LoginLinkConfirmBean registering(boolean value) {
+        this.register = value;
+        return this;
     }
 
     /** Numbers to pick from; empty for links sent before number matching existed. */
