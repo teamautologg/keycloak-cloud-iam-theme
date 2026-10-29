@@ -163,6 +163,17 @@ since 29.10.2026; the script prints both states.)
   (api-v2 `/v2/user/login`) asks accounts with an authenticator for its code as well. The
   pre-hijacking reset also removes an authenticator set up before the address was verified.
 
+### Passkeys
+
+Our forms bring Keycloak's passkey sign-in along: with `--passkeys on` the address field offers the
+passkeys in the browser's autofill and "Mit Passkey anmelden" opens the passkey dialog; the app sets one
+up with `kc_action=webauthn-register-passwordless` and removes one with `delete_credential`. The script
+sets the passwordless policy (RP ID, resident key, user verification, "Passkeys"), the required action
+and adds "Condition - credential" to OTP subflows of flows older than Keycloak 26.4, so a passkey
+sign-in asks for no app code. Keycloak's passkey pages come with our texts; the registration page
+suggests the device as the passkey's name. Details, the platforms of the app's login window (web popup,
+iOS `ASWebAuthenticationSession`, Android Auth Tab / Custom Tab) and tests: [docs/passkeys.md](docs/passkeys.md).
+
 ### Rollout per realm
 
 1. Build the jar (Azure pipeline or `./dev/build-provider.sh`) and upload it to Cloud-IAM as a new
@@ -179,8 +190,8 @@ since 29.10.2026; the script prints both states.)
    The script copies the bound browser flow, replaces the password forms in the copy and binds the
    copy. The old flow stays as it is; roll back with `--bind-flow <old alias> --apply` (after
    `--password off` add `--password on`, so accounts without a password can set one). Pass
-   `--config key=value` for an execution config, `--password on|off` for the password and
-   `--otp-step on` for two-factor sign-in. On a
+   `--config key=value` for an execution config, `--password on|off` for the password,
+   `--otp-step on` for two-factor sign-in and `--passkeys on` for passkeys. On a
    realm that already uses the forms the script changes only those (plus the role
    `microsoft-login-only`, which it adds to `excludedRoles` when the realm has it - added, never
    replacing the roles set there).
@@ -219,7 +230,10 @@ login, wrong password, password reset, registration, two-factor sign-in. The oth
 switch the OTP step off and on with the setup script and set up an authenticator through
 `kc_action=CONFIGURE_TOTP` (scenario 18) and switch the password off and on with `--password`
 (scenario 20); scenario 19 runs the script on a fresh copy of the dev realm (copy, bind, OTP step,
-reset flow, `--password off`, `excludedRoles`), the way prod will go.
+reset flow, `--password off`, `--passkeys on`, `excludedRoles`), the way prod will go. Scenario 21
+switches passkeys on and off with the script; scenario 22 sets up, uses and removes a passkey in headless
+Chrome with a virtual WebAuthn authenticator (`dev/e2e_passkeys.mjs`, needs Node 22+ and Chrome,
+skipped without Node). Against a second local stack pass `--keycloak`, `--mailpit` and `--db-container`.
 
 Each run types a few wrong codes on purpose; three runs within an hour reach the limit of 20 wrong
 codes per account and hour, and the code scenarios fail. `docker compose -p al5388 restart keycloak`
