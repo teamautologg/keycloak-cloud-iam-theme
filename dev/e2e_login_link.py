@@ -822,7 +822,7 @@ def setup_script_copy(identifier_first, organization=False):
     try:
         admin_call(realm, "POST", "/roles", {"name": "microsoft-login-only"})
         original = admin_call(realm, "GET", "")["browserFlow"]
-        out = run_setup_script(realm, "--otp-step", "off", "--apply", "--yes")
+        out = run_setup_script(realm, "--otp-step", "off", "--password", "off", "--apply", "--yes")
         bound = admin_call(realm, "GET", "")["browserFlow"]
         check(out.returncode == 0 and bound == f"{original} with login link", f"copy bound ({bound!r})")
         check(otp_requirement(realm) == "DISABLED" and otp_requirement(realm, original) == "CONDITIONAL",
@@ -832,6 +832,8 @@ def setup_script_copy(identifier_first, organization=False):
         ours = next(e for e in flow if (e.get("providerId") or "").startswith("autologg-"))
         cfg = admin_call(realm, "GET", f"/authentication/config/{ours['authenticationConfig']}")["config"]
         check(cfg.get("excludedRoles") == "microsoft-login-only", "role microsoft-login-only excluded automatically")
+        check(cfg.get("passwordLogin") == "false" and admin_call(realm, "GET", "")["resetPasswordAllowed"] is False,
+              "--password off: forms without password, \"Forgot password\" off after binding")
 
         rep = admin_call(realm, "GET", f"/authentication/config/{ours['authenticationConfig']}")
         rep["config"]["excludedRoles"] = "andere-rolle"
@@ -846,6 +848,59 @@ def setup_script_copy(identifier_first, organization=False):
             print(out.stdout[-800:], out.stderr[-800:])
     finally:
         drop_realm()
+
+
+def password_switch(realm, identifier_first, organization=False):
+    print("\n[20] setup script --password: password and \"Forgot password\" in one switch")
+    reset_page = f"{KEYCLOAK}/realms/{realm}/login-actions/reset-credentials?client_id={CLIENT}"
+
+    def forgot_password():
+        return admin_call(realm, "GET", "")["resetPasswordAllowed"]
+
+    def password_login_values():
+        flow = admin_call(realm, "GET", "")["browserFlow"]
+        executions = admin_call(realm, "GET", f"/authentication/flows/{urllib.parse.quote(flow, safe='')}/executions")
+        return {admin_call(realm, "GET", f"/authentication/config/{e['authenticationConfig']}")["config"].get("passwordLogin")
+                if e.get("authenticationConfig") else None
+                for e in executions if (e.get("providerId") or "").startswith("autologg-")}
+
+    def reset_form_shown():
+        page = Browser("desk", DESKTOP_UA).open(reset_page)
+        return any("username" in form["fields"] for form in page.forms.values())
+
+    before = forgot_password()
+    try:
+        out = run_setup_script(realm, "--password", "off", "--apply", "--yes")
+        check(out.returncode == 0 and password_login_values() == {"false"} and forgot_password() is False,
+              "--password off: no password in the login-link forms, \"Forgot password\" off in the realm")
+        check(not reset_form_shown(), "no reset page, not even by its address")
+        desk = Browser("desk", DESKTOP_UA)
+        start_login(desk, realm)
+        check("login-actions/reset-credentials" not in desk.html, "login page without \"Passwort zurücksetzen\"")
+        out = run_setup_script(realm, "--password", "off")
+        check(out.returncode == 0 and "nothing to do" in out.stdout, "a second run has nothing to do")
+
+        out = run_setup_script(realm, "--password", "on", "--apply", "--yes")
+        check(out.returncode == 0 and password_login_values() == {"true"} and forgot_password() is True,
+              "--password on: both back in one run")
+        check(reset_form_shown(), "reset page there again")
+        if not (identifier_first or organization):
+            desk = Browser("desk", DESKTOP_UA)
+            page = choose(desk, start_login(desk, realm), USER_WITH_PASSWORD[0])
+            check("password" in page.forms.get("kc-form-login", {}).get("fields", {})
+                  and "login-actions/reset-credentials" in desk.html,
+                  "password step with \"Passwort zurücksetzen\" again")
+
+        out = run_setup_script(realm, "--password", "on", "--config", "passwordLogin=false")
+        check(out.returncode != 0 and "contradicts" in out.stderr, "--password and --config passwordLogin must agree")
+        bound = admin_call(realm, "GET", "")["browserFlow"]
+        out = run_setup_script(realm, "--bind-flow", bound, "--password", "off", "--apply")
+        check(out.returncode == 0 and forgot_password() is False, "--bind-flow (roll back) switches \"Forgot password\" too")
+        if out.returncode != 0:
+            print(out.stdout[-800:], out.stderr[-800:])
+    finally:
+        admin_call(realm, "PUT", "", {"resetPasswordAllowed": before})
+        configure_execution(admin_token(), realm, {"passwordLogin": "true"})
 
 
 def admin_call(realm, method, path, body=None):
@@ -1123,6 +1178,7 @@ def main():
     exclusions(realm, args.identifier_first, args.organization)
     registration_cap(realm, args.identifier_first, args.organization)
     two_factor(realm, args.identifier_first, args.organization)
+    password_switch(realm, args.identifier_first, args.organization)
     setup_script_copy(args.identifier_first, args.organization)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)

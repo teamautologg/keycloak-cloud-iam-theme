@@ -68,6 +68,12 @@ logins and passkeys stay. `passwordLogin=true` offers the password next to the l
 page two with both). This covers the browser login only; the API's password grant (direct grant
 flow) is separate.
 
+Passwords are not needed for now but have to come back quickly (Thomas, 29.10.2026). The setup script
+switches them in one run: `--password off` sets `passwordLogin=false` in the forms and turns Keycloak's
+*Forgot password* off in the realm, so there is no reset page either, not even by its address;
+`--password on` brings both back - accounts registered through the link have no password and set one
+through *Passwort zurücksetzen*. API logins (direct grant) and demo accounts keep their passwords.
+
 Registration: if the realm lets people register, an unknown address gets an e-mail *Dein
 AutoLogg-Konto anlegen* instead of nothing - same waiting page; the link opens *Konto anlegen*
 with a required box "Ich akzeptiere die AGB und habe die Datenschutzinformation gelesen" before
@@ -143,8 +149,8 @@ accounts without one are not asked. Only a subflow with *Condition - user config
 OTP Form counts. `--otp-step on` also disables *Reset OTP* in the realm's reset-credentials flow:
 Keycloak's default removes the authenticator on a password reset by e-mail, which makes the mailbox
 alone enough again. A lost phone then goes through the support (admin console: user -> Credentials ->
-delete the OTP). `--otp-step off` disables the OTP step and leaves the reset flow alone. (Staging had
-the OTP step disabled; the script prints both states.)
+delete the OTP). `--otp-step off` disables the OTP step and leaves the reset flow alone. (On staging
+since 29.10.2026; the script prints both states.)
 
 - Set up from the app: an authorization request with `kc_action=CONFIGURE_TOTP`. Keycloak asks to
   sign in again when the last sign-in is older than 5 minutes (required action config
@@ -171,8 +177,10 @@ the OTP step disabled; the script prints both states.)
    ```
 
    The script copies the bound browser flow, replaces the password forms in the copy and binds the
-   copy. The old flow stays as it is; roll back with `--bind-flow <old alias> --apply`. Pass
-   `--config key=value` for an execution config and `--otp-step on` for two-factor sign-in. On a
+   copy. The old flow stays as it is; roll back with `--bind-flow <old alias> --apply` (after
+   `--password off` add `--password on`, so accounts without a password can set one). Pass
+   `--config key=value` for an execution config, `--password on|off` for the password and
+   `--otp-step on` for two-factor sign-in. On a
    realm that already uses the forms the script changes only those (plus the role
    `microsoft-login-only`, which it adds to `excludedRoles` when the realm has it - added, never
    replacing the roles set there).
@@ -209,8 +217,9 @@ hides the address field, for unknown addresses too.
 `--plain` checks the theme without the login link (Keycloak's own browser flow, as in prod):
 login, wrong password, password reset, registration, two-factor sign-in. The other variants also
 switch the OTP step off and on with the setup script and set up an authenticator through
-`kc_action=CONFIGURE_TOTP` (scenario 18); scenario 19 runs the script on a fresh copy of the dev realm
-(copy, bind, OTP step, reset flow, `excludedRoles`), the way prod will go.
+`kc_action=CONFIGURE_TOTP` (scenario 18) and switch the password off and on with `--password`
+(scenario 20); scenario 19 runs the script on a fresh copy of the dev realm (copy, bind, OTP step,
+reset flow, `--password off`, `excludedRoles`), the way prod will go.
 
 Each run types a few wrong codes on purpose; three runs within an hour reach the limit of 20 wrong
 codes per account and hour, and the code scenarios fail. `docker compose -p al5388 restart keycloak`

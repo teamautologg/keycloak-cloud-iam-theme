@@ -24,10 +24,14 @@ Examples
   python scripts/setup_login_link_flow.py --server https://id.autologg.com/auth --realm staging-autologg \\
       --admin-user thomas.jetzinger --otp --apply
   python scripts/setup_login_link_flow.py ... --config excludedIdentityProviders=entra-acme --apply
-  python scripts/setup_login_link_flow.py ... --config passwordLogin=true --apply    # password next to the link
+  python scripts/setup_login_link_flow.py ... --password on --apply    # password next to the link again
   python scripts/setup_login_link_flow.py ... --config excludedDomains=pharmatechnik.de --apply
 
 On a realm that already uses the login-link forms, --config changes the execution config.
+--password off: the login page asks for no password (passwordLogin=false in the forms) and "Forgot
+password" is off in the realm, so there is no password reset page either. --password on brings both
+back in one run; accounts that registered through the link have no password and set one through
+"Forgot password". API logins (direct grant) and demo accounts keep their passwords either way.
 --otp-step on switches the flow's OTP subflow to CONDITIONAL: accounts that set up an
 authenticator app (2FA) are asked for its code after the link. It also disables "Reset OTP" in the
 realm's reset-credentials flow - otherwise a password reset by e-mail removes the authenticator and
@@ -35,6 +39,7 @@ the mailbox alone is enough again (lost phone: support removes it). off disables
 and leaves the reset flow as it is.
 A realm role microsoft-login-only is excluded automatically (excludedRoles).
   python scripts/setup_login_link_flow.py ... --bind-flow browser --apply      # roll back
+  python scripts/setup_login_link_flow.py ... --bind-flow browser --password on --apply   # ... "Forgot password" too
 """
 import argparse
 import getpass
@@ -239,6 +244,10 @@ def setup(api, args):
           f"e-mail theme {realm.get('emailTheme')!r}")
     print_flow(executions)
     config = parse_config(args.config)
+    if args.password:
+        wanted = "true" if args.password == "on" else "false"
+        if config.setdefault("passwordLogin", wanted) != wanted:
+            raise SystemExit(f"--password {args.password} contradicts --config passwordLogin={config['passwordLogin']}")
     # Added to the roles a form excludes already, never instead of them.
     auto_role = None
     if "excludedRoles" not in config and api.get_or_none(f"/roles/{quote(MICROSOFT_ONLY_ROLE)}") is not None:
@@ -246,6 +255,8 @@ def setup(api, args):
         print(f"\nRealm role {MICROSOFT_ONLY_ROLE} exists: its users get no login e-mail (excludedRoles).")
     print_identity_providers(api, config)
     print(f"\nRegistration: {'new addresses register through the link' if realm.get('registrationAllowed') else 'off (realm)'}")
+    print(f"Forgot password (realm): {'on' if realm.get('resetPasswordAllowed') else 'off'}")
+    forgot = forgot_password_plan(args, realm)
     steps = otp_steps(executions)
     print("OTP step (2FA after the link): "
           + (", ".join(f"{e['displayName']!r} {e['requirement']}" for _, e in steps) or "none in the flow"))
@@ -256,7 +267,7 @@ def setup(api, args):
 
     ours = [e for e in executions if e.get("providerId") in REPLACEMENTS.values()]
     if ours:
-        update_config(api, args, ours, config, auto_role, current, executions, reset_alias, reset_executions)
+        update_config(api, args, ours, config, auto_role, current, executions, reset_alias, reset_executions, forgot)
         return
     targets = [(i, e) for i, e in enumerate(executions) if e.get("providerId") in REPLACEMENTS]
     if not targets:
@@ -285,6 +296,9 @@ def setup(api, args):
     for _, e, wanted in reset:
         print(f"  6. password reset keeps the authenticator: {e['displayName']!r} in {reset_alias!r} "
               f"from {e['requirement']} to {wanted}")
+    if forgot is not None:
+        # After binding: until then the old flow with its password forms keeps its reset link.
+        print(f"  7. after binding: {forgot_password_change(forgot)}")
     if not args.apply:
         print("\nDry run - nothing changed. Run again with --apply.")
         return
@@ -313,6 +327,7 @@ def setup(api, args):
         raise
 
     bind(api, args.realm, new_alias, True)
+    apply_forgot_password(api, forgot)
     print("\nNew flow:")
     print_flow(api.executions(new_alias))
 
@@ -367,6 +382,24 @@ def print_reset_flow(reset_alias, executions):
     print(f"Password reset by e-mail ({reset_alias!r}) removes the authenticator: {'yes' if removes else 'no'} ({state})")
 
 
+def forgot_password_plan(args, realm):
+    """--password: the value the realm's "Forgot password" (resetPasswordAllowed) gets, None when it stays."""
+    if not args.password:
+        return None
+    wanted = args.password == "on"
+    return None if bool(realm.get("resetPasswordAllowed")) == wanted else wanted
+
+
+def forgot_password_change(forgot):
+    return f"\"Forgot password\" (realm): {'off -> on' if forgot else 'on -> off'}"
+
+
+def apply_forgot_password(api, forgot):
+    if forgot is not None:
+        api.call("PUT", "", {"resetPasswordAllowed": forgot})
+        print(f"  {forgot_password_change(forgot)}")
+
+
 def apply_otp_plan(api, flow_alias, executions, plan):
     for i, e, wanted in plan:
         changed = dict(e)
@@ -376,7 +409,7 @@ def apply_otp_plan(api, flow_alias, executions, plan):
 
 
 def update_config(api, args, executions, config, auto_role=None, flow_alias=None, all_executions=None,
-                  reset_alias=None, reset_executions=None):
+                  reset_alias=None, reset_executions=None, forgot=None):
     """The bound flow already uses our forms: merge --config (and the automatic role) into their config."""
     plan = []
     for execution in executions:
@@ -392,7 +425,7 @@ def update_config(api, args, executions, config, auto_role=None, flow_alias=None
             plan.append((execution, changed))
     otp = otp_plan(args, all_executions or [])
     reset = reset_otp_plan(args, reset_executions or [])
-    if not plan and not otp and not reset:
+    if not plan and not otp and not reset and forgot is None:
         print("\nThe bound flow already uses the login-link forms with this config; nothing to do.")
         return
     print("\nPlan:")
@@ -402,6 +435,8 @@ def update_config(api, args, executions, config, auto_role=None, flow_alias=None
         print(f"  - OTP step {e['displayName']!r}: {e['requirement']} -> {wanted}")
     for _, e, wanted in reset:
         print(f"  - password reset keeps the authenticator: {e['displayName']!r} in {reset_alias!r} -> {wanted}")
+    if forgot is not None:
+        print(f"  - {forgot_password_change(forgot)}")
     if not args.apply:
         print("\nDry run - nothing changed. Run again with --apply.")
         return
@@ -421,6 +456,7 @@ def update_config(api, args, executions, config, auto_role=None, flow_alias=None
         print(f"  {execution['displayName']}: config updated")
     apply_otp_plan(api, flow_alias, all_executions or [], otp)
     apply_otp_plan(api, reset_alias, reset_executions or [], reset)
+    apply_forgot_password(api, forgot)
 
 
 def replace_forms(api, new_alias, config):
@@ -467,6 +503,9 @@ def main():
     p.add_argument("--otp-step", choices=("on", "off"),
                    help="on: accounts with an authenticator app (2FA) enter its code after the link, "
                         "and a password reset by e-mail no longer removes the app; off: no code")
+    p.add_argument("--password", choices=("on", "off"),
+                   help="on: password next to the link and \"Forgot password\" in the realm; off: link only, "
+                        "no password reset page either (with --bind-flow: \"Forgot password\" only)")
     p.add_argument("--bind-flow", metavar="ALIAS", help="only bind this flow as browser flow (roll back)")
     p.add_argument("--apply", action="store_true", help="make the changes after a confirmation (default: dry run)")
     p.add_argument("--yes", action="store_true", help="with --apply: do not ask before changing anything")
@@ -479,7 +518,13 @@ def main():
     try:
         if args.bind_flow:
             bind(api, args.realm, args.bind_flow, args.apply)
-            if not args.apply:
+            # Rolled back to Keycloak's password forms: accounts registered through the link need the reset.
+            forgot = forgot_password_plan(args, api.get(""))
+            if args.apply:
+                apply_forgot_password(api, forgot)
+            else:
+                if forgot is not None:
+                    print(forgot_password_change(forgot))
                 print("Dry run - nothing changed. Run again with --apply.")
         else:
             setup(api, args)
