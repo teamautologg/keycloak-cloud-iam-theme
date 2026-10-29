@@ -4,11 +4,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class MailProvidersTest {
+
+    private final Function<String, List<String>> realResolver = MailProviders.resolver;
+
+    @AfterEach
+    void realResolverAgain() {
+        MailProviders.resolver = realResolver;
+    }
 
     @Test
     void consumerDomainsNeedNoLookup() {
@@ -54,5 +64,33 @@ class MailProvidersTest {
         assertNull(MailProviders.domainOf("thomas@localhost"));
         assertNull(MailProviders.domainOf("thomas@exa mple.com"));
         assertNull(MailProviders.domainOf(null));
+    }
+
+    @Test
+    void companyDomainsAreLookedUpOnlyWhenAllowed() {
+        List<String> asked = new ArrayList<>();
+        MailProviders.resolver = domain -> {
+            asked.add(domain);
+            return List.of("contoso-com.mail.protection.outlook.com");
+        };
+        // Not allowed and not cached: no DNS query, no button.
+        assertTrue(MailProviders.forAddress("max@gate-al5388.test", null, false).isEmpty());
+        assertTrue(asked.isEmpty());
+        // Consumer domains need no lookup.
+        assertEquals("Outlook", MailProviders.forAddress("max@outlook.com", null, false).orElseThrow().name());
+        assertTrue(asked.isEmpty());
+        // Allowed: one query, then the cached answer also where no query is allowed.
+        assertEquals("Outlook", MailProviders.forAddress("max@gate-al5388.test", null, true).orElseThrow().name());
+        assertEquals("Outlook", MailProviders.forAddress("eva@gate-al5388.test", null, false).orElseThrow().name());
+        assertEquals(List.of("gate-al5388.test"), asked);
+    }
+
+    @Test
+    void noAnswerFromDnsIsNoProviderForNowNotForHours() {
+        MailProviders.resolver = domain -> null;
+        assertTrue(MailProviders.forAddress("max@timeout-al5388.test", null, true).isEmpty());
+        MailProviders.resolver = domain -> List.of("aspmx.l.google.com");
+        // Cached for a few minutes only; within them the button stays off.
+        assertTrue(MailProviders.forAddress("max@timeout-al5388.test", null, false).isEmpty());
     }
 }

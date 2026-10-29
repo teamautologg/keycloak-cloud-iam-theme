@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -67,6 +68,8 @@ final class LoginLinkFlow {
     private final LoginLinkConfig config;
     private final String back;
     private final LoginPage loginPage;
+    /** This request passed the sending limits: a company domain may be looked up for the mailbox button. */
+    private boolean mailboxLookup;
 
     /**
      * @param back way back the waiting page offers, one of the {@code LoginLinkSentBean.BACK_*} values
@@ -186,8 +189,14 @@ final class LoginLinkFlow {
             return;
         }
 
+        mailboxLookup = true;
         UserModel user = knownUser != null ? knownUser : findUser(session, realm, typed);
         String register = user == null ? registrationAddress(realm, typed) : null;
+        if (register != null
+                && countThisHour(store, LoginLink.registrationsKey(realm.getId(), now / 3600)) > config.maxRegistrationsPerHour) {
+            warnRegistrationCap(realm, now / 3600);
+            register = null;  // treated like an address that cannot register: same page, no e-mail
+        }
         String refusal = register != null ? null : refusal(session, realm, user);
         long ttl = ttlSeconds(realm);
         String code = LoginLinkSecrets.newCode(config.codeLength);
@@ -210,6 +219,8 @@ final class LoginLinkFlow {
         if (refusal != null) {
             authSession.setAuthNote(LoginLink.NOTE_USER, "");
             LOG.debugf("No login link sent in realm %s: %s", realm.getName(), refusal);
+            // As long as a send takes: the response time must not tell that no e-mail went out.
+            SendTiming.pad(realm.getId());
             context.challenge(waitingPage(null, null, null));
             return;
         }
@@ -245,8 +256,10 @@ final class LoginLinkFlow {
         authSession.setAuthNote(LoginLink.NOTE_TOKEN_HASH, tokenHash);
 
         String recipient = user != null ? user.getId() : "new account";
+        long started = System.nanoTime();
         try {
             sendEmail(session, realm, authSession, user, register, token, code, ttl, browser, operatingSystem);
+            SendTiming.record(realm.getId(), (System.nanoTime() - started) / 1_000_000);
         } catch (EmailException e) {
             LOG.warnf(e, "Login link e-mail to %s in realm %s failed", recipient, realm.getName());
             clear();
@@ -631,7 +644,19 @@ final class LoginLinkFlow {
             return null;
         }
         Map<String, String> smtp = context.getRealm().getSmtpConfig();
-        return MailProviders.forAddress(address, smtp == null ? null : smtp.get("from")).orElse(null);
+        return MailProviders.forAddress(address, smtp == null ? null : smtp.get("from"), mailboxLookup).orElse(null);
+    }
+
+    /** Realm id -> hour of the last warning; staging and prod share the server. */
+    private static final Map<String, Long> REGISTRATION_CAP_WARNED = new ConcurrentHashMap<>();
+
+    /** Once per realm and hour: someone may be mass-mailing made-up addresses through the registration. */
+    private static void warnRegistrationCap(RealmModel realm, long hour) {
+        Long before = REGISTRATION_CAP_WARNED.put(realm.getId(), hour);
+        if (before == null || before != hour) {
+            LOG.warnf("Login link: more registration e-mails than maxRegistrationsPerHour in realm %s this hour; "
+                    + "unknown addresses get no e-mail until the next hour", realm.getName());
+        }
     }
 
     /** Windows or macOS, where a mail app can be opened from the page; phones log in in the app's browser. */
