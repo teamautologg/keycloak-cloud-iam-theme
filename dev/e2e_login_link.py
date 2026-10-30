@@ -725,6 +725,21 @@ def registration_binding(realm, identifier_first, organization=False):
             delete_users(realm, other)
             delete_users(realm, mine)
 
+            # "That was not me" on the link of the same e-mail ends what its code proved as well.
+            address = f"abgelehnt-{secrets.token_hex(3)}@autologg.local"
+            clear_mails()
+            desk = Browser("desk", DESKTOP_UA)
+            page = send_link(desk, realm, address)
+            link, code, _ = latest_mail(address)
+            page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+            phone = Browser("phone", PHONE_UA)
+            phone.submit(phone.open(link).forms["kc-login-link-deny-form"], None, "deny")
+            page = desk.submit(page.forms["kc-login-link-terms-form"], {"terms": "on"}, "register")
+            check(desk.code_from_redirects() is None and not find_users(realm, address)
+                  and "kc-login-link-code-form" in page.forms,
+                  "right code, then \"Das war ich nicht\" on the link: the terms create nothing")
+            delete_users(realm, address)
+
         print("\n[15c] an account the address got after the registration e-mail is never signed in")
         for via in ("code", "link"):
             address = f"spaeter-{secrets.token_hex(3)}@autologg.local"
