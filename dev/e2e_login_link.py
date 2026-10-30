@@ -457,6 +457,54 @@ def pre_hijacking(realm, identifier_first):
         admin_call(realm, "DELETE", f"/users/{user['id']}")
 
 
+def pre_hijacking_otp(realm, identifier_first):
+    print("\n[11b] unverified address with an authenticator app: the app stays and its code is asked for")
+    address, secret = "vorab-otp@autologg.local", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXQ"
+    before = otp_requirement(realm)
+    if before != "CONDITIONAL":
+        run_setup_script(realm, "--otp-step", "on", "--apply", "--yes")
+    events = admin_call(realm, "GET", "/events/config")
+    admin_call(realm, "PUT", "/events/config", {**events, "eventsEnabled": True, "enabledEventTypes": sorted(
+        set(events.get("enabledEventTypes") or []) | {"VERIFY_EMAIL"})})
+    delete_users(realm, address)
+    # E.g. an address changed since (the server marks it unverified): password, passkey and app set up before.
+    admin_call(realm, "POST", "/partialImport", {"ifResourceExists": "FAIL", "users": [{
+        "username": address, "email": address, "firstName": "Vorab", "lastName": "OTP", "enabled": True,
+        "emailVerified": False, "realmRoles": [f"default-roles-{realm}"],
+        "credentials": [
+            {"type": "password", "value": "Vorher1234!", "temporary": False},
+            {"type": "webauthn-passwordless", "userLabel": "Passkey", "secretData": "{}",
+             "credentialData": json.dumps({"aaguid": "00000000-0000-0000-0000-000000000000", "credentialId": "dGVzdA",
+                                           "counter": 0, "attestationStatementFormat": "none"})},
+            {"type": "otp", "userLabel": "Testtelefon", "secretData": json.dumps({"value": secret}),
+             "credentialData": json.dumps({"subType": "totp", "digits": 6, "counter": 0, "period": 30,
+                                           "algorithm": "HmacSHA1"})}]}]})
+    user = find_users(realm, address)[0]
+    try:
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, identifier_first)
+        _, code, _ = latest_mail(address)
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check("kc-otp-login-form" in page.forms and desk.code_from_redirects() is None,
+              "after the code from the e-mail the app code is asked for")
+        types = sorted(c["type"] for c in admin_call(realm, "GET", f"/users/{user['id']}/credentials"))
+        check(types == ["otp"], f"the app stays, password and passkey are gone ({types})")
+        check(admin_call(realm, "GET", f"/users/{user['id']}")["emailVerified"], "address verified")
+        verified = admin_call(realm, "GET", f"/events?type=VERIFY_EMAIL&user={user['id']}") or [{}]
+        details = verified[0].get("details") or {}
+        check(details.get("login_link_otp_kept") == "1" and (details.get("login_link_reset") or "").startswith("2 credentials"),
+              f"VERIFY_EMAIL event records what was removed and that the app was kept ({details})")
+        if "kc-otp-login-form" in page.forms:
+            desk.submit(page.forms["kc-otp-login-form"], {"otp": totp(secret)})
+            check(desk.code_from_redirects() is not None, "right app code signs in")
+    finally:
+        delete_users(realm, address)
+        admin_call(realm, "PUT", "/events/config", events)
+        if before and before != "CONDITIONAL":
+            run_setup_script(realm, "--otp-step", "off", "--apply", "--yes")
+
+
 def ip_limit(realm, identifier_first):
     print("\n[12] e-mails per IP address and hour")
     configure_execution(admin_token(), realm, {"maxSendsPerIpPerHour": "2"})
@@ -551,8 +599,12 @@ def show_unmanaged_attributes(realm):
         admin_call(realm, "PUT", "/users/profile", profile)
 
 
+def find_users(realm, address):
+    return admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true") or []
+
+
 def delete_users(realm, address):
-    for user in admin_call(realm, "GET", f"/users?email={urllib.parse.quote(address)}&exact=true") or []:
+    for user in find_users(realm, address):
         admin_call(realm, "DELETE", f"/users/{user['id']}")
 
 
@@ -641,6 +693,79 @@ def link_only(realm, identifier_first, organization=False):
                   "realm without registration: same page, no e-mail")
         finally:
             admin_call(realm, "PUT", "", {"registrationAllowed": True})
+    finally:
+        configure_execution(admin_token(), realm, {"passwordLogin": "true"})
+
+
+def registration_binding(realm, identifier_first, organization=False):
+    if identifier_first:
+        return  # its Username Form stops unknown addresses before us: no registration there
+    configure_execution(admin_token(), realm, {"passwordLogin": ""})  # the default: link only
+    try:
+        if not organization:  # there the address comes from the organization step, not from our form
+            print("\n[15b] a right code proves its own e-mail and address only")
+            mine, other = (f"{name}-{secrets.token_hex(3)}@autologg.local" for name in ("eigene", "andere"))
+            clear_mails()
+            desk = Browser("desk", DESKTOP_UA)
+            page = send_link(desk, realm, mine)
+            _, code, _ = latest_mail(mine)
+            page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+            check("kc-login-link-terms-form" in page.forms, "right code for the own address: terms page")
+            pause_for_cooldown()
+            # A post the page does not offer: the same login asks for an e-mail to another address.
+            page = desk.open(urllib.parse.urljoin(desk.url, page.forms["kc-login-link-terms-form"]["action"]),
+                             {"username": other, "loginLink": "1"})
+            check("kc-login-link-code-form" in page.forms and latest_mail(other)[0] is not None,
+                  "e-mail to the other address, waiting page")
+            page = desk.open(urllib.parse.urljoin(desk.url, page.forms["kc-login-link-code-form"]["action"]),
+                             {"loginLinkTerms": "1", "terms": "on"})
+            check(desk.code_from_redirects() is None and not find_users(realm, other) and not find_users(realm, mine),
+                  "terms posted now: no account for either address, nobody signed in")
+            check("kc-login-link-code-form" in page.forms, "the waiting page again")
+            delete_users(realm, other)
+            delete_users(realm, mine)
+
+            # "That was not me" on the link of the same e-mail ends what its code proved as well.
+            address = f"abgelehnt-{secrets.token_hex(3)}@autologg.local"
+            clear_mails()
+            desk = Browser("desk", DESKTOP_UA)
+            page = send_link(desk, realm, address)
+            link, code, _ = latest_mail(address)
+            page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+            phone = Browser("phone", PHONE_UA)
+            phone.submit(phone.open(link).forms["kc-login-link-deny-form"], None, "deny")
+            page = desk.submit(page.forms["kc-login-link-terms-form"], {"terms": "on"}, "register")
+            check(desk.code_from_redirects() is None and not find_users(realm, address)
+                  and "kc-login-link-code-form" in page.forms,
+                  "right code, then \"Das war ich nicht\" on the link: the terms create nothing")
+            delete_users(realm, address)
+
+        print("\n[15c] an account the address got after the registration e-mail is never signed in")
+        for via in ("code", "link"):
+            address = f"spaeter-{secrets.token_hex(3)}@autologg.local"
+            clear_mails()
+            desk = Browser("desk", DESKTOP_UA)
+            page = send_link(desk, realm, address, organization)
+            link, code, _ = latest_mail(address)
+            admin_call(realm, "POST", "/users", {"username": address, "email": address, "firstName": "Spaeter",
+                                                 "lastName": "ANGELEGT", "enabled": True, "emailVerified": True})
+            try:
+                if via == "code":
+                    page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+                    page = desk.submit(page.forms["kc-login-link-terms-form"], {"terms": "on"}, "register")
+                else:
+                    phone = Browser("phone", PHONE_UA)
+                    confirm = phone.open(link)
+                    phone.submit(confirm.forms["kc-login-link-confirm-form"], {"terms": "on"}, "confirm")
+                    page = desk.submit(page.forms["kc-login-link-check-form"])
+                users = find_users(realm, address)
+                check(desk.code_from_redirects() is None and len(users) == 1 and users[0].get("firstName") == "Spaeter",
+                      f"{via}: terms accepted, but no sign-in to the account created after the e-mail")
+                # The organization step hides the address field, and with it the field's message.
+                check("kc-form-login" in page.forms and (organization or "melde dich noch einmal an" in desk.html),
+                      f"{via}: back to the login page" + ("" if organization else ", \"Bitte melde dich noch einmal an.\""))
+            finally:
+                delete_users(realm, address)
     finally:
         configure_execution(admin_token(), realm, {"passwordLogin": "true"})
 
@@ -1348,10 +1473,12 @@ def main():
     update_password_dropped(realm, two_step)
     refused(realm, two_step)
     pre_hijacking(realm, two_step)
+    pre_hijacking_otp(realm, two_step)
     ip_limit(realm, two_step)
     if not args.identifier_first:  # its Username Form stops the unknown test addresses before us
         open_mailbox(realm, two_step)
     link_only(realm, args.identifier_first, args.organization)
+    registration_binding(realm, args.identifier_first, args.organization)
     exclusions(realm, args.identifier_first, args.organization)
     registration_cap(realm, args.identifier_first, args.organization)
     two_factor(realm, args.identifier_first, args.organization)

@@ -36,6 +36,7 @@ import org.keycloak.models.utils.FormMessage;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.models.RoleModel;
 import org.keycloak.models.UserSessionModel;
+import org.keycloak.models.credential.OTPCredentialModel;
 import org.keycloak.models.light.LightweightUserAdapter;
 import org.keycloak.services.validation.Validation;
 import org.keycloak.services.managers.AuthenticationManager;
@@ -103,7 +104,7 @@ final class LoginLinkFlow {
     }
 
     void showWaitingPage() {
-        if (note(LoginLink.NOTE_REGISTER_VERIFIED) != null) {
+        if (provenRegistration() != null) {
             context.challenge(termsPage(false));
             return;
         }
@@ -156,6 +157,10 @@ final class LoginLinkFlow {
         SingleUseObjectProvider store = session.singleUseObjects();
         long now = Time.currentTimeSeconds();
         String typed = identifier == null ? "" : identifier.trim();
+        // Every send, to whichever address and whatever comes of it, ends what a code proved for the
+        // e-mail before: that proof never carries over to another attempt.
+        authSession.removeAuthNote(LoginLink.NOTE_REGISTER_VERIFIED);
+        authSession.removeAuthNote(LoginLink.NOTE_REGISTER_VERIFIED_TOKEN);
 
         if (config.isExcludedDomain(typed)) {
             // Depends on the domain only, not on an account: tells nothing about who has one.
@@ -313,9 +318,12 @@ final class LoginLinkFlow {
             return;
         }
         String register = note(LoginLink.NOTE_REGISTER);
-        if (user == null && register != null && LoginLinkSecrets.matchesHash(note(LoginLink.NOTE_CODE_HASH), code)) {
-            // The mailbox is proven; the terms come before the account.
-            authSession.setAuthNote(LoginLink.NOTE_REGISTER_VERIFIED, "code");
+        String tokenHash = note(LoginLink.NOTE_TOKEN_HASH);
+        if (user == null && register != null && tokenHash != null
+                && LoginLinkSecrets.matchesHash(note(LoginLink.NOTE_CODE_HASH), code)) {
+            // The mailbox is proven, for this address and this e-mail only; the terms come before the account.
+            authSession.setAuthNote(LoginLink.NOTE_REGISTER_VERIFIED, register);
+            authSession.setAuthNote(LoginLink.NOTE_REGISTER_VERIFIED_TOKEN, tokenHash);
             context.challenge(termsPage(false));
             return;
         }
@@ -364,7 +372,7 @@ final class LoginLinkFlow {
         for (String note : List.of(LoginLink.NOTE_STATE, LoginLink.NOTE_USER, LoginLink.NOTE_IDENTIFIER,
                 LoginLink.NOTE_CODE_HASH, LoginLink.NOTE_EXPIRES_AT, LoginLink.NOTE_ATTEMPTS,
                 LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_DENIED,
-                LoginLink.NOTE_REGISTER, LoginLink.NOTE_REGISTER_VERIFIED)) {
+                LoginLink.NOTE_REGISTER, LoginLink.NOTE_REGISTER_VERIFIED, LoginLink.NOTE_REGISTER_VERIFIED_TOKEN)) {
             authSession.removeAuthNote(note);
         }
     }
@@ -380,6 +388,12 @@ final class LoginLinkFlow {
             removeSetupBeforeVerification(user);
             user.setEmailVerified(true);
             user.removeRequiredAction(UserModel.RequiredAction.VERIFY_EMAIL);
+            // An event of its own: with an authenticator app the LOGIN event comes only after its code,
+            // from a later request, without the details of this one.
+            context.getEvent().clone().event(EventType.VERIFY_EMAIL).user(user)
+                    .detail(Details.EMAIL, user.getEmail())
+                    .detail(LoginLink.EVENT_DETAIL, method)
+                    .success();
         }
         // Signing in through the e-mail needs no password; a pending "set your password" (e.g. from the
         // webshop's action mail) would only stand in the way. A password login still asks for it.
@@ -389,24 +403,34 @@ final class LoginLinkFlow {
         context.success();
     }
 
-    /**
-     * The link of an unknown address was confirmed: creates the account as Keycloak's registration
-     * form would (default roles and required actions, REGISTER event), with the address verified and
-     * no password, and asks for the name next. If the address got an account in the meantime (e.g.
-     * through Google), the link proves the mailbox and logs into that one.
-     */
     /** Terms page after the right code: the box ticked creates the account, else the page again. */
     private void acceptTermsAndRegister(MultivaluedMap<String, String> form) {
-        String register = note(LoginLink.NOTE_REGISTER);
-        if (register == null || note(LoginLink.NOTE_REGISTER_VERIFIED) == null) {
-            context.challenge(waitingPage(null, null, null));
+        String register = provenRegistration();
+        if (register == null) {
+            // No right code for the e-mail and address waiting now, or expired or refused since.
+            context.challenge(waitingPage(isExpired() ? new FormMessage(LoginLink.FORM_CODE, "loginLinkCodeExpired") : null,
+                    null, null));
             return;
         }
         if (!"on".equals(form.getFirst(LoginLink.CONFIRM_TERMS))) {
             context.challenge(termsPage(true));
             return;
         }
-        succeedRegistration(register, note(LoginLink.NOTE_REGISTER_VERIFIED), String.valueOf(Time.currentTimeSeconds()));
+        succeedRegistration(register, "code", String.valueOf(Time.currentTimeSeconds()));
+    }
+
+    /**
+     * The address that the right code of the current registration e-mail proved, or null. The proof
+     * holds for that e-mail and address only: a new e-mail (to any address), going back, expiry or
+     * "that was not me" ends it.
+     */
+    private String provenRegistration() {
+        String register = note(LoginLink.NOTE_REGISTER);
+        String tokenHash = note(LoginLink.NOTE_TOKEN_HASH);
+        boolean proven = register != null && tokenHash != null
+                && register.equals(note(LoginLink.NOTE_REGISTER_VERIFIED))
+                && tokenHash.equals(note(LoginLink.NOTE_REGISTER_VERIFIED_TOKEN));
+        return proven && !isExpired() ? register : null;
     }
 
     private Response termsPage(boolean termsMissing) {
@@ -415,12 +439,19 @@ final class LoginLinkFlow {
         return form.createForm(LoginLink.TEMPLATE_TERMS);
     }
 
+    /**
+     * The link or code of an unknown address was confirmed and the terms accepted: creates the account
+     * as Keycloak's registration form would (default roles and required actions, REGISTER event), with
+     * the address verified and no password, and logs it in. An account the address got after the
+     * e-mail (shop, admin, Google ...) is never signed in this way: the login starts over, and that
+     * account signs in through its own login.
+     */
     private void succeedRegistration(String address, String method, String termsAcceptedAt) {
         KeycloakSession session = context.getSession();
         RealmModel realm = context.getRealm();
         UserModel existing = findUser(session, realm, address);
         if (existing != null) {
-            succeed(existing, method);
+            registrationTaken(realm, address, existing.getId());
             return;
         }
         if (!realm.isRegistrationAllowed() || config.isExcludedDomain(address)) {
@@ -433,12 +464,8 @@ final class LoginLinkFlow {
             // Like the registration form: default roles and default required actions come with it.
             user = session.users().addUser(realm, address);
         } catch (ModelDuplicateException e) {
-            // Created a moment ago by a parallel request: that is the account to log into.
-            UserModel parallel = findUser(session, realm, address);
-            if (parallel == null) {
-                throw e;
-            }
-            succeed(parallel, method);
+            // Created a moment ago elsewhere: not this registration's account either.
+            registrationTaken(realm, address, null);
             return;
         }
         user.setEnabled(true);
@@ -462,6 +489,18 @@ final class LoginLinkFlow {
         succeed(user, method);
     }
 
+    /** The address has an account by now: back to the login page with a neutral message, nobody signed in. */
+    private void registrationTaken(RealmModel realm, String address, String existingUserId) {
+        LOG.infof("Login link registration in realm %s: the address has an account by now (user %s); the login starts over",
+                realm.getName(), existingUserId);
+        context.getEvent().clone().event(EventType.REGISTER)
+                .detail(Details.EMAIL, address)
+                .detail(Details.REGISTER_METHOD, LoginLink.REGISTER_METHOD)
+                .error(Errors.EMAIL_IN_USE);
+        clear();
+        context.challenge(loginPage.withError("loginLinkSignInAgain"));
+    }
+
     /** The address to create an account for, or null: only e-mail addresses, only if the realm lets people register. */
     private String registrationAddress(RealmModel realm, String typed) {
         if (!realm.isRegistrationAllowed() || !Validation.isEmailValid(typed) || config.isExcludedDomain(typed)) {
@@ -472,14 +511,21 @@ final class LoginLinkFlow {
 
     /**
      * Account pre-hijacking: someone may have registered the address before its owner, with their
-     * own password, OTP, passkey or identity provider, waiting for the owner to verify it. The link
-     * proves the mailbox for the first time, so nothing set up before survives, and no session either.
+     * own password, passkey or identity provider, waiting for the owner to verify it. The link
+     * proves the mailbox for the first time, so no way in set up before survives, and no session
+     * either. Authenticator apps (OTP) stay: one opens nothing by itself, and the OTP step after this
+     * form asks for it only while the account has one ("Condition - user configured"). Removing it
+     * would let the mailbox alone sign in where the address merely became unverified again, e.g.
+     * after a change of address.
      */
     private void removeSetupBeforeVerification(UserModel user) {
         KeycloakSession session = context.getSession();
         RealmModel realm = context.getRealm();
-        List<CredentialModel> credentials = user.credentialManager().getStoredCredentialsStream().toList();
+        List<CredentialModel> stored = user.credentialManager().getStoredCredentialsStream().toList();
+        List<CredentialModel> credentials = stored.stream()
+                .filter(credential -> !OTPCredentialModel.TYPE.equals(credential.getType())).toList();
         credentials.forEach(credential -> user.credentialManager().removeStoredCredentialById(credential.getId()));
+        int otpKept = stored.size() - credentials.size();
         List<String> providers = session.users().getFederatedIdentitiesStream(realm, user)
                 .map(FederatedIdentityModel::getIdentityProvider).toList();
         providers.forEach(alias -> session.users().removeFederatedIdentity(realm, user, alias));
@@ -487,12 +533,15 @@ final class LoginLinkFlow {
         sessions.forEach(userSession -> AuthenticationManager.backchannelLogout(session, userSession, false));
         List<UserSessionModel> offline = session.sessions().getOfflineUserSessionsStream(realm, user).toList();
         offline.forEach(userSession -> session.sessions().removeOfflineUserSession(realm, userSession));
-        if (!credentials.isEmpty() || !providers.isEmpty() || !sessions.isEmpty() || !offline.isEmpty()) {
+        if (!credentials.isEmpty() || !providers.isEmpty() || !sessions.isEmpty() || !offline.isEmpty() || otpKept > 0) {
             String removed = credentials.size() + " credentials, " + providers.size() + " identity provider links, "
                     + (sessions.size() + offline.size()) + " sessions";
             context.getEvent().detail(LoginLink.EVENT_DETAIL_RESET, removed);
-            LOG.infof("Login link verified the e-mail of user %s in realm %s for the first time; removed %s",
-                    user.getId(), realm.getName(), removed);
+            if (otpKept > 0) {
+                context.getEvent().detail(LoginLink.EVENT_DETAIL_OTP_KEPT, String.valueOf(otpKept));
+            }
+            LOG.infof("Login link verified the e-mail of user %s in realm %s for the first time; removed %s, kept %d OTP credentials",
+                    user.getId(), realm.getName(), removed, otpKept);
         }
     }
 
