@@ -36,6 +36,7 @@ import org.keycloak.models.utils.FormMessage;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.models.RoleModel;
 import org.keycloak.models.UserSessionModel;
+import org.keycloak.models.credential.OTPCredentialModel;
 import org.keycloak.models.light.LightweightUserAdapter;
 import org.keycloak.services.validation.Validation;
 import org.keycloak.services.managers.AuthenticationManager;
@@ -387,6 +388,12 @@ final class LoginLinkFlow {
             removeSetupBeforeVerification(user);
             user.setEmailVerified(true);
             user.removeRequiredAction(UserModel.RequiredAction.VERIFY_EMAIL);
+            // An event of its own: with an authenticator app the LOGIN event comes only after its code,
+            // from a later request, without the details of this one.
+            context.getEvent().clone().event(EventType.VERIFY_EMAIL).user(user)
+                    .detail(Details.EMAIL, user.getEmail())
+                    .detail(LoginLink.EVENT_DETAIL, method)
+                    .success();
         }
         // Signing in through the e-mail needs no password; a pending "set your password" (e.g. from the
         // webshop's action mail) would only stand in the way. A password login still asks for it.
@@ -504,14 +511,21 @@ final class LoginLinkFlow {
 
     /**
      * Account pre-hijacking: someone may have registered the address before its owner, with their
-     * own password, OTP, passkey or identity provider, waiting for the owner to verify it. The link
-     * proves the mailbox for the first time, so nothing set up before survives, and no session either.
+     * own password, passkey or identity provider, waiting for the owner to verify it. The link
+     * proves the mailbox for the first time, so no way in set up before survives, and no session
+     * either. Authenticator apps (OTP) stay: one opens nothing by itself, and the OTP step after this
+     * form asks for it only while the account has one ("Condition - user configured"). Removing it
+     * would let the mailbox alone sign in where the address merely became unverified again, e.g.
+     * after a change of address.
      */
     private void removeSetupBeforeVerification(UserModel user) {
         KeycloakSession session = context.getSession();
         RealmModel realm = context.getRealm();
-        List<CredentialModel> credentials = user.credentialManager().getStoredCredentialsStream().toList();
+        List<CredentialModel> stored = user.credentialManager().getStoredCredentialsStream().toList();
+        List<CredentialModel> credentials = stored.stream()
+                .filter(credential -> !OTPCredentialModel.TYPE.equals(credential.getType())).toList();
         credentials.forEach(credential -> user.credentialManager().removeStoredCredentialById(credential.getId()));
+        int otpKept = stored.size() - credentials.size();
         List<String> providers = session.users().getFederatedIdentitiesStream(realm, user)
                 .map(FederatedIdentityModel::getIdentityProvider).toList();
         providers.forEach(alias -> session.users().removeFederatedIdentity(realm, user, alias));
@@ -519,12 +533,15 @@ final class LoginLinkFlow {
         sessions.forEach(userSession -> AuthenticationManager.backchannelLogout(session, userSession, false));
         List<UserSessionModel> offline = session.sessions().getOfflineUserSessionsStream(realm, user).toList();
         offline.forEach(userSession -> session.sessions().removeOfflineUserSession(realm, userSession));
-        if (!credentials.isEmpty() || !providers.isEmpty() || !sessions.isEmpty() || !offline.isEmpty()) {
+        if (!credentials.isEmpty() || !providers.isEmpty() || !sessions.isEmpty() || !offline.isEmpty() || otpKept > 0) {
             String removed = credentials.size() + " credentials, " + providers.size() + " identity provider links, "
                     + (sessions.size() + offline.size()) + " sessions";
             context.getEvent().detail(LoginLink.EVENT_DETAIL_RESET, removed);
-            LOG.infof("Login link verified the e-mail of user %s in realm %s for the first time; removed %s",
-                    user.getId(), realm.getName(), removed);
+            if (otpKept > 0) {
+                context.getEvent().detail(LoginLink.EVENT_DETAIL_OTP_KEPT, String.valueOf(otpKept));
+            }
+            LOG.infof("Login link verified the e-mail of user %s in realm %s for the first time; removed %s, kept %d OTP credentials",
+                    user.getId(), realm.getName(), removed, otpKept);
         }
     }
 

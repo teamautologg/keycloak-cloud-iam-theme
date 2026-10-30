@@ -117,11 +117,17 @@ neither a login nor a registration e-mail, and the page tells them to use *Mit M
   which addresses have an account, also not after someone ran the registration cap out on purpose.
   (Only when the mail server fails, a real send shows an error where no send shows the waiting page.)
 - A login through the e-mail proves the address: it is marked verified and a pending
-  *Verify Email* action is dropped. If the address was not verified before, everything set up on
-  the account until then is removed - passwords, OTP, passkeys, identity provider links - and all
-  its sessions end (account pre-hijacking: someone registered the address before its owner and
-  waits for them to verify it). The LOGIN event then carries `login_link_reset`. A pending *Update Password* action is dropped as well - the
-  login needed no password; a password login still asks for the new one.
+  *Verify Email* action is dropped. If the address was not verified before, every way in set up on
+  the account until then is removed - passwords, passkeys and other credentials, identity provider
+  links - and all its sessions end (account pre-hijacking: someone registered the address before its
+  owner and waits for them to verify it). An authenticator app (OTP) stays: it opens nothing by
+  itself, and the OTP step after the form still asks for its code - removing it would let the
+  mailbox alone sign in where the address only became unverified again (the server marks every
+  changed address unverified). Keycloak records this as a `VERIFY_EMAIL` event with
+  `login_link_reset` (what was removed) and `login_link_otp_kept`; the LOGIN event carries them too
+  when it follows in the same request (after an OTP step it comes later, without them). A pending
+  *Update Password* action is dropped as well - the login needed no password; a password login
+  still asks for the new one.
 - The LOGIN event carries `login_link=link` or `login_link=code`.
 
 ### Configuration
@@ -165,7 +171,8 @@ since 29.10.2026; the script prints both states.)
 - Keycloak's OTP pages with our styles and texts (du, the app's words). Logins through Google, Apple
   or Microsoft skip the step - there the provider's own protection applies. Keycloak's direct grant
   (api-v2 `/v2/user/login`) asks accounts with an authenticator for its code as well. The
-  pre-hijacking reset also removes an authenticator set up before the address was verified.
+  pre-hijacking reset keeps the authenticator, so the first link login after the address became
+  unverified asks for its code too.
 
 ### Passkeys
 
@@ -234,7 +241,10 @@ login, wrong password, password reset, registration, two-factor sign-in. The oth
 switch the OTP step off and on with the setup script and set up an authenticator through
 `kc_action=CONFIGURE_TOTP` (scenario 18) and switch the password off and on with `--password`
 (scenario 20); scenario 19 runs the script on a fresh copy of the dev realm (copy, bind, OTP step,
-reset flow, `--password off`, `--passkeys on`, `excludedRoles`), the way prod will go. Scenario 21
+reset flow, `--password off`, `--passkeys on`, `excludedRoles`), the way prod will go. Scenario 11b
+checks that the pre-hijacking reset keeps an authenticator app and asks for it, 15b and 15c that a
+registration creates the account only for the e-mail and address its code proved and never signs in
+to an account the address got after the e-mail. Scenario 21
 switches passkeys on and off with the script; scenario 22 sets up, uses and removes a passkey in headless
 Chrome with a virtual WebAuthn authenticator (`dev/e2e_passkeys.mjs`, needs Node 22+ and Chrome,
 skipped without Node). Against a second local stack pass `--keycloak`, `--mailpit` and `--db-container`.

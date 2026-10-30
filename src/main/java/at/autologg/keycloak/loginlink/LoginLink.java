@@ -90,6 +90,8 @@ final class LoginLink {
     static final String EVENT_DETAIL = "login_link";
     /** Event detail when the login verified the address and removed what was set up before. */
     static final String EVENT_DETAIL_RESET = "login_link_reset";
+    /** Event detail with the number of authenticator app (OTP) credentials that reset kept. */
+    static final String EVENT_DETAIL_OTP_KEPT = "login_link_otp_kept";
     /** register_method of the REGISTER event for accounts created through the link. */
     static final String REGISTER_METHOD = "login_link";
 

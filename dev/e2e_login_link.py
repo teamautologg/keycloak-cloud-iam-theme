@@ -457,6 +457,54 @@ def pre_hijacking(realm, identifier_first):
         admin_call(realm, "DELETE", f"/users/{user['id']}")
 
 
+def pre_hijacking_otp(realm, identifier_first):
+    print("\n[11b] unverified address with an authenticator app: the app stays and its code is asked for")
+    address, secret = "vorab-otp@autologg.local", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXQ"
+    before = otp_requirement(realm)
+    if before != "CONDITIONAL":
+        run_setup_script(realm, "--otp-step", "on", "--apply", "--yes")
+    events = admin_call(realm, "GET", "/events/config")
+    admin_call(realm, "PUT", "/events/config", {**events, "eventsEnabled": True, "enabledEventTypes": sorted(
+        set(events.get("enabledEventTypes") or []) | {"VERIFY_EMAIL"})})
+    delete_users(realm, address)
+    # E.g. an address changed since (the server marks it unverified): password, passkey and app set up before.
+    admin_call(realm, "POST", "/partialImport", {"ifResourceExists": "FAIL", "users": [{
+        "username": address, "email": address, "firstName": "Vorab", "lastName": "OTP", "enabled": True,
+        "emailVerified": False, "realmRoles": [f"default-roles-{realm}"],
+        "credentials": [
+            {"type": "password", "value": "Vorher1234!", "temporary": False},
+            {"type": "webauthn-passwordless", "userLabel": "Passkey", "secretData": "{}",
+             "credentialData": json.dumps({"aaguid": "00000000-0000-0000-0000-000000000000", "credentialId": "dGVzdA",
+                                           "counter": 0, "attestationStatementFormat": "none"})},
+            {"type": "otp", "userLabel": "Testtelefon", "secretData": json.dumps({"value": secret}),
+             "credentialData": json.dumps({"subType": "totp", "digits": 6, "counter": 0, "period": 30,
+                                           "algorithm": "HmacSHA1"})}]}]})
+    user = find_users(realm, address)[0]
+    try:
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, identifier_first)
+        _, code, _ = latest_mail(address)
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check("kc-otp-login-form" in page.forms and desk.code_from_redirects() is None,
+              "after the code from the e-mail the app code is asked for")
+        types = sorted(c["type"] for c in admin_call(realm, "GET", f"/users/{user['id']}/credentials"))
+        check(types == ["otp"], f"the app stays, password and passkey are gone ({types})")
+        check(admin_call(realm, "GET", f"/users/{user['id']}")["emailVerified"], "address verified")
+        verified = admin_call(realm, "GET", f"/events?type=VERIFY_EMAIL&user={user['id']}") or [{}]
+        details = verified[0].get("details") or {}
+        check(details.get("login_link_otp_kept") == "1" and (details.get("login_link_reset") or "").startswith("2 credentials"),
+              f"VERIFY_EMAIL event records what was removed and that the app was kept ({details})")
+        if "kc-otp-login-form" in page.forms:
+            desk.submit(page.forms["kc-otp-login-form"], {"otp": totp(secret)})
+            check(desk.code_from_redirects() is not None, "right app code signs in")
+    finally:
+        delete_users(realm, address)
+        admin_call(realm, "PUT", "/events/config", events)
+        if before and before != "CONDITIONAL":
+            run_setup_script(realm, "--otp-step", "off", "--apply", "--yes")
+
+
 def ip_limit(realm, identifier_first):
     print("\n[12] e-mails per IP address and hour")
     configure_execution(admin_token(), realm, {"maxSendsPerIpPerHour": "2"})
@@ -1410,6 +1458,7 @@ def main():
     update_password_dropped(realm, two_step)
     refused(realm, two_step)
     pre_hijacking(realm, two_step)
+    pre_hijacking_otp(realm, two_step)
     ip_limit(realm, two_step)
     if not args.identifier_first:  # its Username Form stops the unknown test addresses before us
         open_mailbox(realm, two_step)
