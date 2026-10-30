@@ -84,7 +84,11 @@ Keycloak's registration form would (default roles and required actions, REGISTER
 attribute `terms_and_conditions` (as Keycloak's own terms action keeps it), and the name taken
 from the address - thomas.jetzinger@... becomes Thomas / JETZINGER (Thomas, 28.10.2026: no name
 form; people correct it in the app, whose profile edit writes it back to Keycloak). Nothing is
-created before that. The login page no longer links to Keycloak's registration form.
+created before that. The right code proves that one e-mail and address only: a new e-mail (to any
+address), *Andere E-Mail-Adresse* or expiry ends it. If the address got an account after the
+e-mail (shop, admin, Google ...), the registration never signs in to it: the login starts over with
+"Bitte melde dich noch einmal an." (event `REGISTER_ERROR`, `email_in_use`), and that account signs
+in through its own login. The login page no longer links to Keycloak's registration form.
 
 Excluded: users of the realm role in `excludedRoles` (the setup script sets `microsoft-login-only`
 when the realm has it) get no e-mail; addresses of `excludedDomains` (e.g. `pharmatechnik.de`) get
