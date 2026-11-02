@@ -1,5 +1,6 @@
 package at.autologg.keycloak.loginlink;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import jakarta.ws.rs.Consumes;
@@ -95,7 +96,7 @@ public class LoginLinkResource {
         String address = register != null ? register : user.getEmail();
         return render(LoginLinkConfirmBean.confirm(selfUrl(realm), key, LoginLinkSecrets.maskEmail(address),
                 minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS))
-                .registering(register != null), user);
+                .registering(register != null).offeringOtp(offersOtp(link)), user);
     }
 
     /**
@@ -107,7 +108,7 @@ public class LoginLinkResource {
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
     @Produces(MediaType.TEXT_HTML)
     public Response confirm(@FormParam(LoginLink.CONFIRM_KEY) String key, @FormParam(LoginLink.CONFIRM_DENY) String deny,
-                            @FormParam(LoginLink.CONFIRM_TERMS) String terms) {
+                            @FormParam(LoginLink.CONFIRM_TERMS) String terms, @FormParam(LoginLink.CONFIRM_OTP) String otp) {
         RealmModel realm = session.getContext().getRealm();
         if (!LoginLinkSecrets.isWellFormedToken(key)) {
             return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), null);
@@ -141,12 +142,14 @@ public class LoginLinkResource {
             return render(LoginLinkConfirmBean.invalid("loginLinkSessionGone"), user);
         }
 
+        // Only where the registration offered the box; the waiting login creates the account and sets the app up.
+        boolean otpChosen = register != null && offersOtp(link) && "on".equals(otp);
         if (deny == null && register != null && !"on".equals(terms)) {
             // Not used up: the recipient ticks the box and creates the account then.
             long minutesAgo = Math.max(0, (now - parseLong(link.get(LoginLink.LINK_CREATED_AT))) / 60);
             return render(LoginLinkConfirmBean.confirm(selfUrl(realm), key, LoginLinkSecrets.maskEmail(register),
                     minutesAgo, link.get(LoginLink.LINK_BROWSER), link.get(LoginLink.LINK_OS))
-                    .registering(true).withTermsMissing(), null);
+                    .registering(true).offeringOtp(offersOtp(link)).withOtpChosen(otpChosen).withTermsMissing(), null);
         }
         if (session.singleUseObjects().remove(linkKey) == null) {
             return render(LoginLinkConfirmBean.invalid("loginLinkInvalid"), user);  // used in the meantime
@@ -159,14 +162,26 @@ public class LoginLinkResource {
             return render(LoginLinkConfirmBean.denied("loginLinkDeniedText"), user);
         }
 
+        Map<String, String> confirmed = new HashMap<>();
+        confirmed.put(LoginLink.CONFIRMED_USER, register != null ? "" : user.getId());
+        if (register != null) {
+            confirmed.put(LoginLink.CONFIRMED_REGISTER, register);
+            confirmed.put(LoginLink.CONFIRMED_TERMS, String.valueOf(now));
+            if (otpChosen) {
+                confirmed.put(LoginLink.CONFIRMED_OTP, "on");
+            }
+        }
         session.singleUseObjects().put(LoginLink.confirmedKey(root.getId(), link.get(LoginLink.LINK_TAB)),
-                Math.max(1, expiresAt - now), register != null
-                        ? Map.of(LoginLink.CONFIRMED_USER, "", LoginLink.CONFIRMED_REGISTER, register,
-                                 LoginLink.CONFIRMED_TERMS, String.valueOf(now))
-                        : Map.of(LoginLink.CONFIRMED_USER, user.getId()));
+                Math.max(1, expiresAt - now), confirmed);
         LOG.debugf("Login link confirmed in realm %s", realm.getName());
         String address = register != null ? register : user.getEmail();
-        return render(LoginLinkConfirmBean.done(LoginLinkSecrets.maskEmail(address)).registering(register != null), user);
+        return render(LoginLinkConfirmBean.done(LoginLinkSecrets.maskEmail(address)).registering(register != null)
+                .withOtpChosen(otpChosen), user);
+    }
+
+    /** A registration link of a form that offers to protect the new account with an authenticator app. */
+    private static boolean offersOtp(Map<String, String> link) {
+        return link.get(LoginLink.LINK_REGISTER) != null && "true".equals(link.get(LoginLink.LINK_OTP_OFFER));
     }
 
     private Response render(LoginLinkConfirmBean bean, UserModel user) {

@@ -52,9 +52,13 @@ final class LoginLink {
     static final String LINK_BROWSER = "browser";
     static final String LINK_OS = "os";
     static final String LINK_REGISTER = "register";
+    /** A registration link whose confirm page offers to protect the account with an authenticator app. */
+    static final String LINK_OTP_OFFER = "otpOffer";
     static final String CONFIRMED_USER = "user";
     static final String CONFIRMED_REGISTER = "register";
     static final String CONFIRMED_TERMS = "terms";
+    /** The confirm page's authenticator box was ticked: the waiting login sets the app up after creating the account. */
+    static final String CONFIRMED_OTP = "otp";
 
     // Form parameters of the login and waiting pages.
     static final String FORM_SEND = "loginLink";
@@ -71,6 +75,8 @@ final class LoginLink {
     static final String CONFIRM_DENY = "deny";
     /** Checkbox "I accept the terms" (value "on"), on the confirm page and the terms page. */
     static final String CONFIRM_TERMS = "terms";
+    /** Optional checkbox "protect the account with an authenticator app" (value "on"), next to the terms box. */
+    static final String CONFIRM_OTP = "otpSetup";
 
     // Templates and their attributes.
     static final String TEMPLATE_SENT = "login-link-sent.ftl";
@@ -94,6 +100,8 @@ final class LoginLink {
     static final String EVENT_DETAIL_OTP_KEPT = "login_link_otp_kept";
     /** register_method of the REGISTER event for accounts created through the link. */
     static final String REGISTER_METHOD = "login_link";
+    /** Event detail on the REGISTER event when the new account sets up an authenticator app right away. */
+    static final String EVENT_DETAIL_OTP_SETUP = "login_link_otp_setup";
 
     /** Wrong codes per user and hour across all sessions before codes stop working for that hour. */
     static final int MAX_FAILURES_PER_HOUR = 20;

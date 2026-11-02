@@ -17,19 +17,25 @@ import org.keycloak.WebAuthnConstants;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.authenticators.browser.AbstractUsernameFormAuthenticator;
+import org.keycloak.authentication.authenticators.browser.OTPFormAuthenticatorFactory;
+import org.keycloak.authentication.authenticators.conditional.ConditionalUserConfiguredAuthenticatorFactory;
 import org.keycloak.authentication.authenticators.util.AuthenticatorUtils;
 import org.keycloak.common.util.Time;
 import org.keycloak.credential.CredentialModel;
 import org.keycloak.email.EmailException;
 import org.keycloak.email.EmailTemplateProvider;
 import org.keycloak.events.Details;
+import org.keycloak.events.EventBuilder;
 import org.keycloak.events.EventType;
 import org.keycloak.events.Errors;
 import org.keycloak.forms.login.LoginFormsProvider;
+import org.keycloak.models.AuthenticationExecutionModel;
+import org.keycloak.models.AuthenticationFlowModel;
 import org.keycloak.models.FederatedIdentityModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.ModelDuplicateException;
 import org.keycloak.models.RealmModel;
+import org.keycloak.models.RequiredActionProviderModel;
 import org.keycloak.models.SingleUseObjectProvider;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.utils.FormMessage;
@@ -105,7 +111,7 @@ final class LoginLinkFlow {
 
     void showWaitingPage() {
         if (provenRegistration() != null) {
-            context.challenge(termsPage(false));
+            context.challenge(termsPage(false, false));
             return;
         }
         context.challenge(waitingPage(null, null, null));
@@ -241,6 +247,10 @@ final class LoginLinkFlow {
         link.put(LoginLink.LINK_USER, user == null ? "" : user.getId());
         if (register != null) {
             link.put(LoginLink.LINK_REGISTER, register);
+            if (otpOffered()) {
+                // The confirm page has no execution config: the link tells it to offer the authenticator box.
+                link.put(LoginLink.LINK_OTP_OFFER, "true");
+            }
         }
         link.put(LoginLink.LINK_ROOT_SESSION, authSession.getParentSession().getId());
         link.put(LoginLink.LINK_TAB, authSession.getTabId());
@@ -324,7 +334,7 @@ final class LoginLinkFlow {
             // The mailbox is proven, for this address and this e-mail only; the terms come before the account.
             authSession.setAuthNote(LoginLink.NOTE_REGISTER_VERIFIED, register);
             authSession.setAuthNote(LoginLink.NOTE_REGISTER_VERIFIED_TOKEN, tokenHash);
-            context.challenge(termsPage(false));
+            context.challenge(termsPage(false, false));
             return;
         }
 
@@ -346,9 +356,11 @@ final class LoginLinkFlow {
                 .remove(LoginLink.confirmedKey(authSession.getParentSession().getId(), authSession.getTabId()));
         String register = note(LoginLink.NOTE_REGISTER);
         if (confirmation != null && register != null && register.equals(confirmation.get(LoginLink.CONFIRMED_REGISTER))) {
-            // The confirm page took the terms before it confirmed.
+            // The confirm page took the terms (and the authenticator box) before it confirmed, maybe in another
+            // browser; the account is created here, where the login started, and the app is set up here too.
             String acceptedAt = confirmation.get(LoginLink.CONFIRMED_TERMS);
-            succeedRegistration(register, "link", acceptedAt != null ? acceptedAt : String.valueOf(Time.currentTimeSeconds()));
+            succeedRegistration(register, "link", acceptedAt != null ? acceptedAt : String.valueOf(Time.currentTimeSeconds()),
+                    "on".equals(confirmation.get(LoginLink.CONFIRMED_OTP)));
             return;
         }
         String userId = note(LoginLink.NOTE_USER);
@@ -412,11 +424,12 @@ final class LoginLinkFlow {
                     null, null));
             return;
         }
+        boolean otp = "on".equals(form.getFirst(LoginLink.CONFIRM_OTP));
         if (!"on".equals(form.getFirst(LoginLink.CONFIRM_TERMS))) {
-            context.challenge(termsPage(true));
+            context.challenge(termsPage(true, otp));
             return;
         }
-        succeedRegistration(register, "code", String.valueOf(Time.currentTimeSeconds()));
+        succeedRegistration(register, "code", String.valueOf(Time.currentTimeSeconds()), otp);
     }
 
     /**
@@ -433,9 +446,12 @@ final class LoginLinkFlow {
         return proven && !isExpired() ? register : null;
     }
 
-    private Response termsPage(boolean termsMissing) {
+    /** @param otpChosen the authenticator box was ticked on the page posted without the terms */
+    private Response termsPage(boolean termsMissing, boolean otpChosen) {
+        boolean otpOffered = otpOffered();
         LoginFormsProvider form = context.form();
-        form.setAttribute(LoginLink.ATTR_TERMS, new LoginLinkTermsBean(note(LoginLink.NOTE_REGISTER), termsMissing));
+        form.setAttribute(LoginLink.ATTR_TERMS, new LoginLinkTermsBean(note(LoginLink.NOTE_REGISTER), termsMissing,
+                otpOffered, otpOffered && otpChosen));
         return form.createForm(LoginLink.TEMPLATE_TERMS);
     }
 
@@ -445,8 +461,10 @@ final class LoginLinkFlow {
      * the address verified and no password, and logs it in. An account the address got after the
      * e-mail (shop, admin, Google ...) is never signed in this way: the login starts over, and that
      * account signs in through its own login.
+     *
+     * @param otpWanted the box "protect the account with an authenticator app" was ticked
      */
-    private void succeedRegistration(String address, String method, String termsAcceptedAt) {
+    private void succeedRegistration(String address, String method, String termsAcceptedAt, boolean otpWanted) {
         KeycloakSession session = context.getSession();
         RealmModel realm = context.getRealm();
         UserModel existing = findUser(session, realm, address);
@@ -479,14 +497,57 @@ final class LoginLinkFlow {
         // Accepted before the account was created: on the confirm page or the terms page.
         user.setSingleAttribute(LoginLink.TERMS_ATTRIBUTE, termsAcceptedAt);
         user.removeRequiredAction(UserModel.RequiredAction.TERMS_AND_CONDITIONS);
-        context.getEvent().clone().event(EventType.REGISTER).user(user)
+        boolean otp = otpWanted && otpOffered();
+        if (otp) {
+            // Keycloak's setup page follows this form in this window, before the login goes back to the app;
+            // an account that leaves it unfinished is asked again at its next login.
+            user.addRequiredAction(UserModel.RequiredAction.CONFIGURE_TOTP);
+        } else if (otpWanted) {
+            // Ticked on a page from before the offer was switched off (or posted without a box on the page).
+            LOG.infof("Login link registration in realm %s: an authenticator app was asked for, but registration does not "
+                    + "offer it (registrationOtpOffer, Configure OTP or the OTP step off); created without", realm.getName());
+        }
+        EventBuilder registered = context.getEvent().clone().event(EventType.REGISTER).user(user)
                 .detail(Details.USERNAME, address)
                 .detail(Details.EMAIL, address)
                 .detail(Details.REGISTER_METHOD, LoginLink.REGISTER_METHOD)
-                .detail(LoginLink.TERMS_ATTRIBUTE, termsAcceptedAt)
-                .success();
-        LOG.infof("Login link created user %s in realm %s", user.getId(), realm.getName());
+                .detail(LoginLink.TERMS_ATTRIBUTE, termsAcceptedAt);
+        if (otp) {
+            registered.detail(LoginLink.EVENT_DETAIL_OTP_SETUP, "requested");
+        }
+        registered.success();
+        LOG.infof("Login link created user %s in realm %s%s", user.getId(), realm.getName(),
+                otp ? "; it sets up an authenticator app next" : "");
         succeed(user, method);
+    }
+
+    /**
+     * Whether a registration offers to protect the new account with an authenticator app: switched on in
+     * the execution config, Keycloak's "Configure OTP" action on in the realm, and an OTP step in this
+     * flow - without them the box would do nothing, or set up an app that later logins never ask for.
+     */
+    private boolean otpOffered() {
+        if (!config.registrationOtpOffer) {
+            return false;
+        }
+        RealmModel realm = context.getRealm();
+        RequiredActionProviderModel action = realm.getRequiredActionProviderByAlias(UserModel.RequiredAction.CONFIGURE_TOTP.name());
+        AuthenticationFlowModel flow = context.getTopLevelFlow();
+        return action != null && action.isEnabled() && flow != null && hasOtpStep(realm, flow.getId());
+    }
+
+    /** A subflow that is not disabled, with "Condition - user configured" and the OTP Form (setup script --otp-step on). */
+    private static boolean hasOtpStep(RealmModel realm, String flowId) {
+        return realm.getAuthenticationExecutionsStream(flowId)
+                .filter(execution -> execution.isAuthenticatorFlow() && !execution.isDisabled())
+                .anyMatch(subflow -> {
+                    List<String> steps = realm.getAuthenticationExecutionsStream(subflow.getFlowId())
+                            .filter(step -> !step.isDisabled())
+                            .map(AuthenticationExecutionModel::getAuthenticator)
+                            .toList();
+                    return steps.containsAll(List.of(ConditionalUserConfiguredAuthenticatorFactory.PROVIDER_ID,
+                            OTPFormAuthenticatorFactory.PROVIDER_ID)) || hasOtpStep(realm, subflow.getFlowId());
+                });
     }
 
     /** The address has an account by now: back to the login page with a neutral message, nobody signed in. */

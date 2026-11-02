@@ -37,6 +37,11 @@ authenticator app (2FA) are asked for its code after the link. It also disables 
 realm's reset-credentials flow - otherwise a password reset by e-mail removes the authenticator and
 the mailbox alone is enough again (lost phone: support removes it). off disables the OTP subflow
 and leaves the reset flow as it is.
+--config registrationOtpOffer=true: creating an account through the link offers a box to protect the account
+with an authenticator app as well; ticked, the new account sets up the app right after it is created
+(required action Configure OTP). Needs the OTP step on (in the same run: --otp-step on) and Configure OTP on
+in the realm, else the script stops; while the box is offered, --otp-step off stops too.
+  python scripts/setup_login_link_flow.py ... --config registrationOtpOffer=true --apply
 --passkeys on: sign-in with a passkey on the login page (Keycloak's passkey autofill in the address field
 and "Mit Passkey anmelden" next to the link), setting one up from the app (required action "Webauthn
 Register Passwordless", kc_action=webauthn-register-passwordless) and the passwordless policy passkeys
@@ -69,8 +74,10 @@ THEME = "autologg"
 CONFIG_KEYS = {
     "linkTtlMinutes", "codeLength", "maxCodeAttempts", "resendCooldownSeconds",
     "maxSendsPerHour", "maxSendsPerIpPerHour", "maxRegistrationsPerHour", "excludedIdentityProviders", "markEmailVerified",
-    "passwordLogin", "emailFirst", "excludedRoles", "excludedDomains",
+    "passwordLogin", "emailFirst", "excludedRoles", "excludedDomains", "registrationOtpOffer",
 }
+# Keycloak's required action that sets up an authenticator app (registrationOtpOffer, the app's 2FA page).
+OTP_ACTION = "CONFIGURE_TOTP"
 # Users of this realm role sign in with Microsoft only (Tools/keycloak-entra/setup_microsoft_login_only.py).
 MICROSOFT_ONLY_ROLE = "microsoft-login-only"
 # Passkeys: Keycloak's credential type, the required action the app starts and the name authenticators show.
@@ -295,6 +302,7 @@ def setup(api, args):
     changes = realm_changes(realm)
     if auto_role:
         config["excludedRoles"] = auto_role  # the copied forms are new: nothing to keep
+    check_registration_otp(api, args, is_true(config.get("registrationOtpOffer")), executions)
 
     print("\nPlan:")
     for key, value in changes.items():
@@ -393,6 +401,36 @@ def reset_otp_plan(args, executions):
     if args.otp_step != "on":
         return []
     return [(i, e, "DISABLED") for i, e in reset_otp_steps(executions) if e["requirement"] != "DISABLED"]
+
+
+def is_true(value):
+    """An execution config flag as the forms read it (Boolean.parseBoolean)."""
+    return str(value or "").strip().lower() == "true"
+
+
+def check_registration_otp(api, args, offered, executions):
+    """registrationOtpOffer=true after this run: the box sets Configure OTP on the new account, and the OTP step has to
+    ask for the app's code at later logins - else people would set up an app that is never asked for."""
+    if not offered:
+        print("Two-factor sign-in at registration (registrationOtpOffer): not offered")
+        return
+    actions = api.get("/authentication/required-actions") or []
+    action = next((a for a in actions if OTP_ACTION in (a.get("alias"), a.get("providerId"))), None)
+    if not action or not action.get("enabled"):
+        raise KeycloakError(f"registrationOtpOffer=true needs the required action {OTP_ACTION} on in the realm "
+                            "(Authentication -> Required actions -> Configure OTP)")
+    steps = otp_steps(executions)
+    if not steps:
+        raise KeycloakError("registrationOtpOffer=true needs an OTP step in the browser flow (a subflow with "
+                            "\"Condition - user configured\" and the OTP Form), and this flow has none")
+    wanted = {"on": "CONDITIONAL", "off": "DISABLED"}.get(args.otp_step)
+    after = sorted({wanted or e["requirement"] for _, e in steps})
+    if not set(after) & {"CONDITIONAL", "REQUIRED"}:
+        raise KeycloakError("registrationOtpOffer=true needs the OTP step on, else later logins never ask for the app's "
+                            "code: pass --otp-step on" + (", or --config registrationOtpOffer=false with --otp-step off"
+                                                         if args.otp_step == "off" else ""))
+    print(f"Two-factor sign-in at registration (registrationOtpOffer): offered (OTP step {', '.join(after)}, "
+          f"required action {OTP_ACTION} on)")
 
 
 def print_reset_flow(reset_alias, executions):
@@ -587,6 +625,7 @@ def update_config(api, args, executions, config, auto_role=None, flow_alias=None
                   reset_alias=None, reset_executions=None, forgot=None, passkeys=(None, {}, None)):
     """The bound flow already uses our forms: merge --config (and the automatic role) into their config."""
     plan = []
+    otp_offered = False
     for execution in executions:
         current = {}
         if execution.get("authenticationConfig"):
@@ -598,6 +637,8 @@ def update_config(api, args, executions, config, auto_role=None, flow_alias=None
         print(f"\n{execution['displayName']}: config {current or '(defaults)'}")
         if changed:
             plan.append((execution, changed))
+        otp_offered |= is_true({**current, **changed}.get("registrationOtpOffer"))
+    check_registration_otp(api, args, otp_offered, all_executions or [])
     otp = otp_plan(args, all_executions or [])
     reset = reset_otp_plan(args, reset_executions or [])
     realm, passkey_policy_changes, passkey_action = passkeys
