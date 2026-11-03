@@ -27,8 +27,10 @@ final class LoginLink {
     static final String NOTE_DENIED = "autologg.loginLink.denied";
     /** Address of the account the link creates (unknown address, registration allowed). */
     static final String NOTE_REGISTER = "autologg.loginLink.register";
-    /** The right code for a registration came in; the terms page waits for the box to be ticked. */
+    /** The address the right code of a registration proved; the terms page waits for the box to be ticked. */
     static final String NOTE_REGISTER_VERIFIED = "autologg.loginLink.registerVerified";
+    /** Token hash of the e-mail whose code proved NOTE_REGISTER_VERIFIED: the proof holds for that e-mail only. */
+    static final String NOTE_REGISTER_VERIFIED_TOKEN = "autologg.loginLink.registerVerifiedToken";
 
     // Single-use store.
     static final String LINK_PREFIX = "autologg-login-link:";
@@ -88,6 +90,8 @@ final class LoginLink {
     static final String EVENT_DETAIL = "login_link";
     /** Event detail when the login verified the address and removed what was set up before. */
     static final String EVENT_DETAIL_RESET = "login_link_reset";
+    /** Event detail with the number of authenticator app (OTP) credentials that reset kept. */
+    static final String EVENT_DETAIL_OTP_KEPT = "login_link_otp_kept";
     /** register_method of the REGISTER event for accounts created through the link. */
     static final String REGISTER_METHOD = "login_link";
 
