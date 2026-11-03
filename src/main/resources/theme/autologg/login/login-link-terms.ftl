@@ -13,6 +13,9 @@
                   onsubmit="this.querySelector('button[type=submit]').disabled = true; return true;">
                 <input type="hidden" name="${loginLinkTerms.submitParameter}" value="1"/>
                 <@linkParts.termsCheckbox name=loginLinkTerms.termsParameter missing=loginLinkTerms.termsMissing />
+                <#if loginLinkTerms.otpOffered>
+                    <@linkParts.otpCheckbox name=loginLinkTerms.otpParameter checked=loginLinkTerms.otpChosen />
+                </#if>
                 <@buttons.actionGroup>
                     <@buttons.button id="kc-login-link-terms" name="register" label="loginLinkRegisterConfirmButton" />
                 </@buttons.actionGroup>

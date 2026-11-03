@@ -31,6 +31,7 @@ final class LoginLinkConfig {
     static final String EMAIL_FIRST = "emailFirst";
     static final String EXCLUDED_ROLES = "excludedRoles";
     static final String EXCLUDED_DOMAINS = "excludedDomains";
+    static final String REGISTRATION_OTP_OFFER = "registrationOtpOffer";
 
     static final int DEFAULT_LINK_TTL_MINUTES = 15;
     static final int DEFAULT_CODE_LENGTH = 6;
@@ -58,6 +59,8 @@ final class LoginLinkConfig {
     final Set<String> excludedRoles;
     /** Addresses of these domains (and their subdomains) get no link and cannot register through it. */
     final Set<String> excludedDomains;
+    /** Registration through the link offers to protect the new account with an authenticator app (off by default). */
+    final boolean registrationOtpOffer;
 
     private LoginLinkConfig(Map<String, String> values) {
         linkTtlMinutes = intValue(values, LINK_TTL_MINUTES, DEFAULT_LINK_TTL_MINUTES, 1, 60);
@@ -73,6 +76,7 @@ final class LoginLinkConfig {
         emailFirst = flag(values, EMAIL_FIRST);
         excludedRoles = names(values.get(EXCLUDED_ROLES), false);
         excludedDomains = names(values.get(EXCLUDED_DOMAINS), true);
+        registrationOtpOffer = flag(values, REGISTRATION_OTP_OFFER, false);
     }
 
     static LoginLinkConfig from(AuthenticatorConfigModel model) {
@@ -178,6 +182,13 @@ final class LoginLinkConfig {
                 .helpText("Comma-separated domains, e.g. pharmatechnik.de. Addresses there (subdomains included) get no login e-mail and cannot register through the link; the page points them to their company login.")
                 .type(ProviderConfigProperty.STRING_TYPE)
                 .defaultValue("")
+                .add()
+                .property()
+                .name(REGISTRATION_OTP_OFFER)
+                .label("Two-factor sign-in at registration")
+                .helpText("On: creating an account through the link (the confirm page of the link, the terms page after the code) offers a box to protect the account with an authenticator app as well. Ticked, the new account gets the required action Configure OTP and sets the app up right after it is created, in the window where the login started. Needs Configure OTP on in the realm and the flow's OTP step on (later logins ask for the app's code); without them no box is shown. Off (default): no box.")
+                .type(ProviderConfigProperty.BOOLEAN_TYPE)
+                .defaultValue("false")
                 .add()
                 .build();
     }

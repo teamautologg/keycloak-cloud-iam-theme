@@ -29,6 +29,16 @@ class LoginLinkConfigTest {
         assertTrue(config.excludedRoles.isEmpty());
         assertTrue(config.excludedDomains.isEmpty());
         assertTrue(config.emailFirst);
+        assertFalse(config.registrationOtpOffer);
+    }
+
+    @Test
+    void registrationOtpOfferIsOffUnlessSwitchedOn() {
+        assertTrue(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.REGISTRATION_OTP_OFFER, "true"))).registrationOtpOffer);
+        assertTrue(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.REGISTRATION_OTP_OFFER, " TRUE "))).registrationOtpOffer);
+        assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.REGISTRATION_OTP_OFFER, "false"))).registrationOtpOffer);
+        assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.REGISTRATION_OTP_OFFER, ""))).registrationOtpOffer);
+        assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.REGISTRATION_OTP_OFFER, "ja"))).registrationOtpOffer);
     }
 
     @Test
@@ -80,7 +90,7 @@ class LoginLinkConfigTest {
 
     @Test
     void exposesAllPropertiesInTheAdminConsole() {
-        assertEquals(13, LoginLinkConfig.properties().size());
+        assertEquals(14, LoginLinkConfig.properties().size());
     }
 
     private static AuthenticatorConfigModel model(Map<String, String> values) {

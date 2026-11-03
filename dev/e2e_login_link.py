@@ -92,10 +92,12 @@ class Forms(HTMLParser):
 
 
 class Browser:
-    def __init__(self, name, user_agent):
+    def __init__(self, name, user_agent, jar=None):
+        """`jar`: the cookies of another Browser - a second tab of the same browser."""
         self.name = name
         # Keycloak marks its cookies Secure; browsers send them to http://localhost anyway, urllib does not.
-        self.jar = http.cookiejar.CookieJar(http.cookiejar.DefaultCookiePolicy(secure_protocols=("https", "wss", "http")))
+        self.jar = jar if jar is not None else http.cookiejar.CookieJar(
+            http.cookiejar.DefaultCookiePolicy(secure_protocols=("https", "wss", "http")))
         self.redirects = []
         browser = self
 
@@ -770,6 +772,273 @@ def registration_binding(realm, identifier_first, organization=False):
         configure_execution(admin_token(), realm, {"passwordLogin": "true"})
 
 
+def execution_config(realm):
+    """Config of the login-link form in the bound browser flow."""
+    ours = next(e for e in flow_executions(realm) if (e.get("providerId") or "").startswith("autologg-"))
+    if not ours.get("authenticationConfig"):
+        return {}
+    return admin_call(realm, "GET", f"/authentication/config/{ours['authenticationConfig']}")["config"]
+
+
+def required_actions(realm, address):
+    """Required actions of the account with the address, None when there is none."""
+    users = find_users(realm, address)
+    return (users[0].get("requiredActions") or []) if users else None
+
+
+def set_otp_step(realm, requirement):
+    """Sets the bound flow's conditional OTP step directly, as in the admin console (not the setup script)."""
+    flow = admin_call(realm, "GET", "")["browserFlow"]
+    executions = flow_executions(realm, flow)
+    for i, e in enumerate(executions):
+        children = set()
+        for child in executions[i + 1:]:
+            if child["level"] <= e["level"]:
+                break
+            if child["level"] == e["level"] + 1:
+                children.add(child.get("providerId"))
+        if e.get("authenticationFlow") and {"auth-otp-form", "conditional-user-configured"} <= children:
+            parent = next((p["displayName"] for p in reversed(executions[:i])
+                           if p["level"] == e["level"] - 1 and p.get("authenticationFlow")), flow)
+            admin_call(realm, "PUT", f"/authentication/flows/{urllib.parse.quote(parent, safe='')}/executions",
+                       {**e, "requirement": requirement})
+
+
+def set_configure_otp(realm, enabled):
+    """Keycloak's required action "Configure OTP" in the realm."""
+    action = admin_call(realm, "GET", "/authentication/required-actions/CONFIGURE_TOTP")
+    admin_call(realm, "PUT", "/authentication/required-actions/CONFIGURE_TOTP", {**action, "enabled": enabled})
+
+
+def registration_two_factor(realm, identifier_first, organization=False):
+    if identifier_first:
+        return  # its Username Form stops unknown addresses before us: no registration there
+    print("\n[15d] two-factor sign-in at registration: optional box under the terms")
+    otp_before = otp_requirement(realm)
+    events = admin_call(realm, "GET", "/events/config")
+    admin_call(realm, "PUT", "/events/config", {**events, "eventsEnabled": True, "enabledEventTypes": sorted(
+        set(events.get("enabledEventTypes") or []) | {"REGISTER"})})
+    configure_execution(admin_token(), realm, {"passwordLogin": "", "registrationOtpOffer": ""})  # link only, no box
+
+    def registration_mail(prefix):
+        """Registration e-mail to a new address from a waiting desktop browser: (address, browser, page, link, code)."""
+        address = f"{prefix}-{secrets.token_hex(3)}@autologg.local"
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, organization)
+        link, code, _ = latest_mail(address)
+        return address, desk, page, link, code
+
+    def registered_details(address):
+        """Details of the account's REGISTER event; {} when there is none."""
+        users = find_users(realm, address)
+        found = admin_call(realm, "GET", f"/events?type=REGISTER&user={users[0]['id']}") if users else []
+        return (found or [{}])[0].get("details") or {}
+
+    def no_setup(address):
+        actions = required_actions(realm, address)
+        return actions is not None and "CONFIGURE_TOTP" not in actions
+
+    try:
+        run_setup_script(realm, "--otp-step", "off", "--apply", "--yes")
+        out = run_setup_script(realm, "--config", "registrationOtpOffer=true")
+        check(out.returncode != 0 and "needs the OTP step on" in out.stderr,
+              "setup script: no box while the OTP step is off (later logins would not ask for the app)")
+        out = run_setup_script(realm, "--otp-step", "on", "--config", "registrationOtpOffer=true", "--apply", "--yes")
+        check(out.returncode == 0 and otp_requirement(realm) == "CONDITIONAL"
+              and execution_config(realm).get("registrationOtpOffer") == "true",
+              "--otp-step on --config registrationOtpOffer=true: OTP step on, box offered")
+        if out.returncode != 0:
+            print(out.stdout[-800:], out.stderr[-800:])
+        out = run_setup_script(realm, "--otp-step", "off")
+        check(out.returncode != 0 and "registrationOtpOffer=false" in out.stderr, "while the box is offered --otp-step off stops")
+
+        # Switch off: no box, and a box posted anyway changes nothing.
+        configure_execution(admin_token(), realm, {"registrationOtpOffer": ""})
+        address, desk, page, link, _ = registration_mail("ohne-schalter")
+        phone = Browser("phone", PHONE_UA)
+        confirm = phone.open(link)
+        check('name="terms"' in phone.html and 'name="otpSetup"' not in phone.html,
+              "switch off: confirm page with the terms box only")
+        phone.submit(confirm.forms["kc-login-link-confirm-form"], {"terms": "on", "otpSetup": "on"}, "confirm")
+        desk.submit(page.forms["kc-login-link-check-form"])
+        check(desk.code_from_redirects() is not None and no_setup(address),
+              "link: a box posted anyway changes nothing - signed in at once, no setup")
+        delete_users(realm, address)
+        address, desk, page, _, code = registration_mail("ohne-schalter")
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check("kc-login-link-terms-form" in page.forms and 'name="otpSetup"' not in desk.html,
+              "switch off: terms page after the code with the terms box only")
+        desk.submit(page.forms["kc-login-link-terms-form"], {"terms": "on", "otpSetup": "on"}, "register")
+        check(desk.code_from_redirects() is not None and no_setup(address), "code: a box posted anyway changes nothing either")
+        delete_users(realm, address)
+
+        # Switch on, box not ticked: as before.
+        configure_execution(admin_token(), realm, {"registrationOtpOffer": "true"})
+        address, desk, page, link, _ = registration_mail("ohne-app")
+        phone = Browser("phone", PHONE_UA)
+        confirm = phone.open(link)
+        form = confirm.forms["kc-login-link-confirm-form"]
+        check('name="otpSetup"' in phone.html and "otpSetup" not in form["fields"] and "Authenticator-App sch" in phone.html,
+              "switch on: the confirm page offers the authenticator box under the terms, not ticked")
+        done = phone.submit(form, {"terms": "on"}, "confirm")
+        check(done.data_state == "done" and "Zwei-Faktor-Anmeldung richtest" not in phone.html, "box not ticked: the usual done page")
+        desk.submit(page.forms["kc-login-link-check-form"])
+        details = registered_details(address)
+        check(desk.code_from_redirects() is not None and no_setup(address)
+              and details.get("register_method") == "login_link" and "login_link_otp_setup" not in details,
+              "box not ticked: signed in at once, as before (REGISTER event without login_link_otp_setup)")
+        delete_users(realm, address)
+        address, desk, page, _, code = registration_mail("ohne-app")
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check("kc-login-link-terms-form" in page.forms and 'name="otpSetup"' in desk.html,
+              "the terms page after the code offers the box too")
+        desk.submit(page.forms["kc-login-link-terms-form"], {"terms": "on"}, "register")
+        check(desk.code_from_redirects() is not None and no_setup(address), "code, box not ticked: signed in at once")
+        delete_users(realm, address)
+
+        # Box ticked, link confirmed in another browser (mail app): the waiting login sets the app up.
+        address, desk, page, link, _ = registration_mail("mit-app")
+        phone = Browser("phone", PHONE_UA)
+        confirm = phone.open(link)
+        again = phone.submit(confirm.forms["kc-login-link-confirm-form"], {"otpSetup": "on"}, "confirm")
+        check("Bitte akzeptiere die AGB" in phone.html
+              and again.forms["kc-login-link-confirm-form"]["fields"].get("otpSetup") == "on",
+              "terms missing: asked again, the authenticator box stays ticked")
+        done = phone.submit(again.forms["kc-login-link-confirm-form"], {"terms": "on"}, "confirm")
+        check(done.data_state == "done" and "Zwei-Faktor-Anmeldung richtest du gleich dort ein" in phone.html
+              and not find_users(realm, address),
+              "confirmed in another browser: it says the app is set up where the login started, creates nothing itself")
+        page = desk.submit(page.forms["kc-login-link-check-form"])
+        form = page.forms.get("kc-totp-settings-form")
+        check(form is not None and desk.code_from_redirects() is None and "autologg.css" in desk.html
+              and "CONFIGURE_TOTP" in (required_actions(realm, address) or []),
+              "waiting browser: account created, the authenticator setup page before going back to the app")
+        check("eingeschaltet" in desk.html and "vorgeschrieben" not in desk.html,
+              "the setup page says two-factor sign-in is on for the account, not that it is required")
+        check(registered_details(address).get("login_link_otp_setup") == "requested",
+              "REGISTER event: login_link_otp_setup=requested")
+        if form is not None:
+            secret = form["fields"]["totpSecret"]
+            page = desk.submit(form, {"totp": wrong_totp(secret), "userLabel": "Testtelefon"})
+            check("kc-totp-settings-form" in page.forms and desk.code_from_redirects() is None, "wrong app code: asked again")
+            desk.submit(page.forms["kc-totp-settings-form"], {"totp": totp(secret), "userLabel": "Testtelefon"})
+            user = find_users(realm, address)[0]
+            types = [c["type"] for c in admin_call(realm, "GET", f"/users/{user['id']}/credentials")]
+            check(desk.code_from_redirects() is not None and types == ["otp"] and no_setup(address),
+                  "right app code: saved, back to the app; the account has the authenticator, nothing pending")
+            clear_mails()
+            later = Browser("desk", DESKTOP_UA)
+            page = send_link(later, realm, address, organization)
+            link, _, _ = latest_mail(address)
+            phone = Browser("phone", PHONE_UA)
+            phone.submit(phone.open(link).forms["kc-login-link-confirm-form"], None, "confirm")
+            page = later.submit(page.forms["kc-login-link-check-form"])
+            check("kc-otp-login-form" in page.forms and later.code_from_redirects() is None,
+                  "next login: after the link the app code is asked for")
+            later.submit(page.forms["kc-otp-login-form"], {"otp": totp(secret, time.time() + 30)})
+            check(later.code_from_redirects() is not None, "right app code signs in")
+        delete_users(realm, address)
+
+        # Box ticked, link confirmed in a second tab of the same browser; the setup left unfinished.
+        address, desk, page, link, _ = registration_mail("gleicher-browser")
+        tab = Browser("desk tab", DESKTOP_UA, desk.jar)
+        confirm = tab.open(link)
+        done = tab.submit(confirm.forms["kc-login-link-confirm-form"], {"terms": "on", "otpSetup": "on"}, "confirm")
+        check(done.data_state == "done" and "Zwei-Faktor-Anmeldung richtest du gleich dort ein" in tab.html
+              and not find_users(realm, address), "same browser: the confirming tab only says where the app is set up")
+        page = desk.submit(page.forms["kc-login-link-check-form"])
+        check("kc-totp-settings-form" in page.forms and desk.code_from_redirects() is None,
+              "the setup page comes in the waiting tab")
+        clear_mails()
+        later = Browser("desk", DESKTOP_UA)
+        page = send_link(later, realm, address, organization)
+        _, code, _ = latest_mail(address)
+        page = later.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        form = page.forms.get("kc-totp-settings-form")
+        check(form is not None and later.code_from_redirects() is None,
+              "setup left unfinished: the next login asks for it again (code from the e-mail)")
+        if form is not None:
+            later.submit(form, {"totp": totp(form["fields"]["totpSecret"]), "userLabel": "Testtelefon"})
+            check(later.code_from_redirects() is not None and no_setup(address), "set up then: signed in, nothing pending")
+        delete_users(realm, address)
+
+        # Box ticked with the code from the e-mail: the terms page, then the setup page.
+        address, desk, page, _, code = registration_mail("mit-app-code")
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        page = desk.submit(page.forms["kc-login-link-terms-form"], {"otpSetup": "on"}, "register")
+        check("Bitte akzeptiere die AGB" in desk.html and not find_users(realm, address)
+              and page.forms["kc-login-link-terms-form"]["fields"].get("otpSetup") == "on",
+              "terms page without the terms: asked again, the box stays ticked, nothing created")
+        page = desk.submit(page.forms["kc-login-link-terms-form"], {"terms": "on"}, "register")
+        form = page.forms.get("kc-totp-settings-form")
+        check(form is not None and desk.code_from_redirects() is None
+              and "CONFIGURE_TOTP" in (required_actions(realm, address) or []),
+              "code: account created, the setup page right after it")
+        if form is not None:
+            desk.submit(form, {"totp": totp(form["fields"]["totpSecret"]), "userLabel": "Testtelefon"})
+            check(desk.code_from_redirects() is not None and no_setup(address), "app set up: back to the app")
+        delete_users(realm, address)
+
+        # The address got an account after the e-mail: nobody signed in, and that account gets no setup either.
+        address, desk, page, link, _ = registration_mail("spaeter-app")
+        admin_call(realm, "POST", "/users", {"username": address, "email": address, "firstName": "Spaeter",
+                                             "lastName": "ANGELEGT", "enabled": True, "emailVerified": True})
+        phone = Browser("phone", PHONE_UA)
+        phone.submit(phone.open(link).forms["kc-login-link-confirm-form"], {"terms": "on", "otpSetup": "on"}, "confirm")
+        desk.submit(page.forms["kc-login-link-check-form"])
+        check(desk.code_from_redirects() is None and no_setup(address),
+              "account created after the e-mail, box ticked: nobody signed in, that account gets no setup")
+        delete_users(realm, address)
+
+        # Switched off between the e-mail and the confirmation: the page offered the box, the waiting login drops it.
+        address, desk, page, link, _ = registration_mail("abgeschaltet")
+        phone = Browser("phone", PHONE_UA)
+        confirm = phone.open(link)
+        offered = 'name="otpSetup"' in phone.html
+        configure_execution(admin_token(), realm, {"registrationOtpOffer": ""})
+        phone.submit(confirm.forms["kc-login-link-confirm-form"], {"terms": "on", "otpSetup": "on"}, "confirm")
+        desk.submit(page.forms["kc-login-link-check-form"])
+        check(offered and desk.code_from_redirects() is not None and no_setup(address),
+              "switched off after the e-mail: the box ticked on its page is dropped, signed in without setup")
+        delete_users(realm, address)
+        configure_execution(admin_token(), realm, {"registrationOtpOffer": "true"})
+
+        # Configure OTP off in the realm: no box, and the script refuses the switch.
+        set_configure_otp(realm, False)
+        try:
+            out = run_setup_script(realm, "--config", "registrationOtpOffer=true")
+            check(out.returncode != 0 and "needs the required action CONFIGURE_TOTP" in out.stderr,
+                  "Configure OTP off in the realm: the setup script stops")
+            address, desk, page, link, _ = registration_mail("ohne-aktion")
+            phone = Browser("phone", PHONE_UA)
+            confirm = phone.open(link)
+            check('name="terms"' in phone.html and 'name="otpSetup"' not in phone.html, "and the confirm page has no box")
+            phone.submit(confirm.forms["kc-login-link-confirm-form"], {"terms": "on", "otpSetup": "on"}, "confirm")
+            desk.submit(page.forms["kc-login-link-check-form"])
+            check(desk.code_from_redirects() is not None and no_setup(address), "a box posted anyway changes nothing")
+            delete_users(realm, address)
+        finally:
+            set_configure_otp(realm, True)
+
+        # OTP step switched off in the admin console (not through the script): no box.
+        set_otp_step(realm, "DISABLED")
+        try:
+            address, desk, page, _, code = registration_mail("ohne-otp-schritt")
+            page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+            check("kc-login-link-terms-form" in page.forms and 'name="otpSetup"' not in desk.html,
+                  "OTP step off in the flow: the terms page has no box (an app would never be asked for)")
+            desk.submit(page.forms["kc-login-link-terms-form"], {"terms": "on", "otpSetup": "on"}, "register")
+            check(desk.code_from_redirects() is not None and no_setup(address), "a box posted anyway changes nothing")
+            delete_users(realm, address)
+        finally:
+            set_otp_step(realm, "CONDITIONAL")
+    finally:
+        configure_execution(admin_token(), realm, {"passwordLogin": "true", "registrationOtpOffer": ""})
+        admin_call(realm, "PUT", "/events/config", events)
+        run_setup_script(realm, "--otp-step", "on" if otp_before == "CONDITIONAL" else "off", "--apply", "--yes")
+
+
 def exclusions(realm, identifier_first, organization=False):
     print("\n[16] excluded domain and excluded role")
     configure_execution(admin_token(), realm, {"excludedDomains": "sperre.example", "excludedRoles": "microsoft-login-only"})
@@ -958,6 +1227,12 @@ def setup_script_copy(identifier_first, organization=False):
         admin_call(realm, "POST", "/authentication/flows/browser/copy", {"newName": original})
         drop_passkey_conditions(realm, original)
         admin_call(realm, "PUT", "", {"browserFlow": original})
+        out = run_setup_script(realm, "--otp-step", "off", "--config", "registrationOtpOffer=true")
+        check(out.returncode != 0 and "needs the OTP step on" in out.stderr,
+              "copy: no authenticator box at registration with the OTP step off")
+        out = run_setup_script(realm, "--otp-step", "on", "--config", "registrationOtpOffer=true")
+        check(out.returncode == 0 and "registrationOtpOffer): offered" in out.stdout,
+              "copy: with the OTP step on the box would be offered (dry run)")
         out = run_setup_script(realm, "--otp-step", "off", "--password", "off", "--passkeys", "on", "--apply", "--yes")
         bound = admin_call(realm, "GET", "")["browserFlow"]
         check(out.returncode == 0 and bound == f"{original} with login link", f"copy bound ({bound!r})")
@@ -1479,6 +1754,7 @@ def main():
         open_mailbox(realm, two_step)
     link_only(realm, args.identifier_first, args.organization)
     registration_binding(realm, args.identifier_first, args.organization)
+    registration_two_factor(realm, args.identifier_first, args.organization)
     exclusions(realm, args.identifier_first, args.organization)
     registration_cap(realm, args.identifier_first, args.organization)
     two_factor(realm, args.identifier_first, args.organization)

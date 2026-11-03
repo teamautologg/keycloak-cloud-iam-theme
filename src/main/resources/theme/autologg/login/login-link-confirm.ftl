@@ -43,6 +43,9 @@
                 <#if loginLinkConfirm.register>
                     <#-- Terms before the account: the box is required, the server checks it too. -->
                     <@linkParts.termsCheckbox name=loginLinkConfirm.termsParameter missing=loginLinkConfirm.termsMissing />
+                    <#if loginLinkConfirm.otpOffered>
+                        <@linkParts.otpCheckbox name=loginLinkConfirm.otpParameter checked=loginLinkConfirm.otpChosen />
+                    </#if>
                 </#if>
                 <@buttons.actionGroup>
                     <@buttons.button id="kc-login-link-confirm" name="confirm"
@@ -59,7 +62,12 @@
                 <span class="al-link-hero-icon al-success" aria-hidden="true">
                     <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
                 </span>
-                <p class="al-text">${msg(loginLinkConfirm.register?then("loginLinkRegisterConfirmedText", "loginLinkConfirmedText"))}</p>
+                <#if loginLinkConfirm.register && loginLinkConfirm.otpChosen>
+                    <#-- The app is set up where the login waits (app window, in-app browser), not in this tab. -->
+                    <p class="al-text">${msg("loginLinkRegisterConfirmedOtpText")}</p>
+                <#else>
+                    <p class="al-text">${msg(loginLinkConfirm.register?then("loginLinkRegisterConfirmedText", "loginLinkConfirmedText"))}</p>
+                </#if>
                 <p class="al-text al-muted" id="al-confirmed-hint" data-text-closing="${msg("loginLinkConfirmedClosing")}">${msg("loginLinkConfirmedHint")}</p>
             </div>
         <#elseif loginLinkConfirm.state == "denied">

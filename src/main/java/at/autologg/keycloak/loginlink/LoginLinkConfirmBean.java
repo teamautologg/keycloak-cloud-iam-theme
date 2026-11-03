@@ -22,6 +22,8 @@ public class LoginLinkConfirmBean {
     private final String reason;
     private boolean register;
     private boolean termsMissing;
+    private boolean otpOffered;
+    private boolean otpChosen;
 
     private LoginLinkConfirmBean(String state, String actionUrl, String key, String email, long minutesAgo,
                                  String browser, String operatingSystem, String reason) {
@@ -106,8 +108,32 @@ public class LoginLinkConfirmBean {
         return this;
     }
 
+    /** The registration offers to protect the account with an authenticator app (box next to the terms). */
+    public boolean isOtpOffered() {
+        return otpOffered;
+    }
+
+    LoginLinkConfirmBean offeringOtp(boolean value) {
+        this.otpOffered = value;
+        return this;
+    }
+
+    /** That box was ticked: it stays ticked when the page comes again, and the done page says where the app is set up. */
+    public boolean isOtpChosen() {
+        return otpChosen;
+    }
+
+    LoginLinkConfirmBean withOtpChosen(boolean value) {
+        this.otpChosen = value;
+        return this;
+    }
+
     public String getTermsParameter() {
         return LoginLink.CONFIRM_TERMS;
+    }
+
+    public String getOtpParameter() {
+        return LoginLink.CONFIRM_OTP;
     }
 
     public String getDenyParameter() {

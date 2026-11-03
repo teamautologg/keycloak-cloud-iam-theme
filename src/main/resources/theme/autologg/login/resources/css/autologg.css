@@ -1162,3 +1162,16 @@ details.al-code > form {
     font-size: 13px;
 }
 
+/* Optional box under the terms: protect the new account with an authenticator app. The form's grid
+   gap already separates it from the terms box. */
+.al-terms.al-otp-offer {
+    margin-top: 0;
+}
+
+.al-otp-offer-hint {
+    margin: 2px 0 0;
+    color: var(--al-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+

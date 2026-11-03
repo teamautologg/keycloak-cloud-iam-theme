@@ -90,6 +90,16 @@ e-mail (shop, admin, Google ...), the registration never signs in to it: the log
 "Bitte melde dich noch einmal an." (event `REGISTER_ERROR`, `email_in_use`), and that account signs
 in through its own login. The login page no longer links to Keycloak's registration form.
 
+Two-factor sign-in at registration is voluntary (Thomas, 02.11.2026): with `registrationOtpOffer=true`
+both pages offer a second box under the terms, *Konto zusätzlich mit einer Authenticator-App schützen*,
+not ticked. Ticked, the new account gets Keycloak's required action *Configure OTP*, and its setup page
+comes right after the account is created, before the login goes back to the app - in the window where
+the login started, also when the link was confirmed in another browser: the confirm page passes the
+wish on with the confirmation to the waiting login (the confirming tab only says so). An account that
+leaves the setup unfinished is asked again at its next login; the REGISTER event carries
+`login_link_otp_setup=requested`. Off by default - in prod the app's two-factor page is still hidden
+(`TWO_FACTOR_SIGN_IN=false`); the server ignores a posted box while it is off.
+
 Excluded: users of the realm role in `excludedRoles` (the setup script sets `microsoft-login-only`
 when the realm has it) get no e-mail; addresses of `excludedDomains` (e.g. `pharmatechnik.de`) get
 neither a login nor a registration e-mail, and the page tells them to use *Mit Microsoft anmelden*
@@ -149,6 +159,7 @@ Optional, on the execution (Authentication -> flow -> gear icon). Without a conf
 | `emailFirst` | true | with `passwordLogin=true`: page one asks for the address, page two offers link or password |
 | `excludedRoles` | - | realm roles whose users get no e-mail (e.g. `microsoft-login-only`) |
 | `excludedDomains` | - | e-mail domains (subdomains included) without login or registration e-mail |
+| `registrationOtpOffer` | false | registration through the link offers the box "protect the account with an authenticator app" as well (needs the OTP step on) |
 
 ### Two-factor sign-in (authenticator app)
 
@@ -168,6 +179,14 @@ since 29.10.2026; the script prints both states.)
   `kc_action_status=success|cancelled|error`.
 - Remove: `kc_action=delete_credential:<credential id>` (Keycloak asks to confirm); the account REST
   API `/realms/{realm}/account/credentials` lists the ids.
+- At registration, if the person wants it: `--config registrationOtpOffer=true` (see Registration
+  above). The script stops unless the OTP step is on after the run and *Configure OTP* is on in the
+  realm - an app that is set up but never asked for would only look like protection; while the box is
+  offered, `--otp-step off` stops as well. The form itself shows no box either while *Configure OTP*
+  or the OTP step is off (e.g. switched off in the admin console), and logs it when a box ticked on an
+  older page is dropped.
+  Keycloak's setup page says "Für dein Konto ist die Zwei-Faktor-Anmeldung eingeschaltet" - true for
+  accounts that chose it and for those that must use it (e.g. `otp-enforced` from the server).
 - Keycloak's OTP pages with our styles and texts (du, the app's words). Logins through Google, Apple
   or Microsoft skip the step - there the provider's own protection applies. Keycloak's direct grant
   (api-v2 `/v2/user/login`) asks accounts with an authenticator for its code as well. The
@@ -202,7 +221,8 @@ iOS `ASWebAuthenticationSession`, Android Auth Tab / Custom Tab) and tests: [doc
    copy. The old flow stays as it is; roll back with `--bind-flow <old alias> --apply` (after
    `--password off` add `--password on`, so accounts without a password can set one). Pass
    `--config key=value` for an execution config, `--password on|off` for the password,
-   `--otp-step on` for two-factor sign-in and `--passkeys on` for passkeys. On a
+   `--otp-step on` for two-factor sign-in (`--config registrationOtpOffer=true` offers it at
+   registration too) and `--passkeys on` for passkeys. On a
    realm that already uses the forms the script changes only those (plus the role
    `microsoft-login-only`, which it adds to `excludedRoles` when the realm has it - added, never
    replacing the roles set there).
@@ -244,7 +264,10 @@ switch the OTP step off and on with the setup script and set up an authenticator
 reset flow, `--password off`, `--passkeys on`, `excludedRoles`), the way prod will go. Scenario 11b
 checks that the pre-hijacking reset keeps an authenticator app and asks for it, 15b and 15c that a
 registration creates the account only for the e-mail and address its code proved and never signs in
-to an account the address got after the e-mail. Scenario 21
+to an account the address got after the e-mail; 15d the optional authenticator box at registration
+(switch, *Configure OTP* or the OTP step off, switched off after the e-mail, box not ticked, box ticked
+through link and code, confirmed in another and in the same browser, setup left unfinished, account
+created meanwhile, the next login asking for the app's code). Scenario 21
 switches passkeys on and off with the script; scenario 22 sets up, uses and removes a passkey in headless
 Chrome with a virtual WebAuthn authenticator (`dev/e2e_passkeys.mjs`, needs Node 22+ and Chrome,
 skipped without Node). Against a second local stack pass `--keycloak`, `--mailpit` and `--db-container`.
