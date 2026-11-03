@@ -37,7 +37,16 @@ authenticator app (2FA) are asked for its code after the link. It also disables 
 realm's reset-credentials flow - otherwise a password reset by e-mail removes the authenticator and
 the mailbox alone is enough again (lost phone: support removes it). off disables the OTP subflow
 and leaves the reset flow as it is.
+--passkeys on: sign-in with a passkey on the login page (Keycloak's passkey autofill in the address field
+and "Mit Passkey anmelden" next to the link), setting one up from the app (required action "Webauthn
+Register Passwordless", kc_action=webauthn-register-passwordless) and the passwordless policy passkeys
+need: RP ID = host of --server unless the realm has one already (--passkey-rp-id changes it, which makes
+registered passkeys unusable), resident key and user verification required, no second passkey on the
+same authenticator. A passkey sign-in skips the OTP step - device plus fingerprint, face or PIN are two
+factors already; flows from before Keycloak 26.4 lack that check, the script adds "Condition - credential"
+to their OTP subflow. off: no passkey sign-in and no new passkeys; registered passkeys stay stored.
 A realm role microsoft-login-only is excluded automatically (excludedRoles).
+  python scripts/setup_login_link_flow.py ... --passkeys on --apply
   python scripts/setup_login_link_flow.py ... --bind-flow browser --apply      # roll back
   python scripts/setup_login_link_flow.py ... --bind-flow browser --password on --apply   # ... "Forgot password" too
 """
@@ -64,6 +73,10 @@ CONFIG_KEYS = {
 }
 # Users of this realm role sign in with Microsoft only (Tools/keycloak-entra/setup_microsoft_login_only.py).
 MICROSOFT_ONLY_ROLE = "microsoft-login-only"
+# Passkeys: Keycloak's credential type, the required action the app starts and the name authenticators show.
+PASSKEY_CREDENTIAL = "webauthn-passwordless"
+PASSKEY_ACTION = "webauthn-register-passwordless"
+PASSKEY_RP_NAME = "AutoLogg"
 
 
 class KeycloakError(Exception):
@@ -264,10 +277,13 @@ def setup(api, args):
     reset_executions = api.executions(reset_alias) if reset_alias else []
     if reset_alias:
         print_reset_flow(reset_alias, reset_executions)
+    print_passkeys(api, realm, executions)
+    passkeys = (realm, passkey_policy_plan(args, realm), passkey_action_plan(args, api))
 
     ours = [e for e in executions if e.get("providerId") in REPLACEMENTS.values()]
     if ours:
-        update_config(api, args, ours, config, auto_role, current, executions, reset_alias, reset_executions, forgot)
+        update_config(api, args, ours, config, auto_role, current, executions, reset_alias, reset_executions, forgot,
+                      passkeys)
         return
     targets = [(i, e) for i, e in enumerate(executions) if e.get("providerId") in REPLACEMENTS]
     if not targets:
@@ -299,6 +315,8 @@ def setup(api, args):
     if forgot is not None:
         # After binding: until then the old flow with its password forms keeps its reset link.
         print(f"  7. after binding: {forgot_password_change(forgot)}")
+    for line in passkey_plan_lines(realm, passkeys[1], passkeys[2], passkey_otp_plan(args, api, executions), True):
+        print(f"  8. {line}")
     if not args.apply:
         print("\nDry run - nothing changed. Run again with --apply.")
         return
@@ -317,6 +335,7 @@ def setup(api, args):
         # Before binding: if this fails the copy goes, and the realm keeps its flow as it was.
         copied = api.executions(new_alias)
         apply_otp_plan(api, new_alias, copied, otp_plan(args, copied))
+        apply_passkey_otp_plan(api, new_alias, passkey_otp_plan(args, api, api.executions(new_alias)))
         apply_otp_plan(api, reset_alias, reset_executions, reset)
     except KeycloakError:
         # Not bound yet, so the half-done copy can simply go.
@@ -328,6 +347,7 @@ def setup(api, args):
 
     bind(api, args.realm, new_alias, True)
     apply_forgot_password(api, forgot)
+    apply_passkeys(api, api.get(""), passkeys[1], passkeys[2])
     print("\nNew flow:")
     print_flow(api.executions(new_alias))
 
@@ -400,6 +420,161 @@ def apply_forgot_password(api, forgot):
         print(f"  {forgot_password_change(forgot)}")
 
 
+def direct_children(executions, index):
+    """The executions one level below the subflow at `index` of the flattened list."""
+    found = []
+    for child in executions[index + 1:]:
+        if child["level"] <= executions[index]["level"]:
+            break
+        if child["level"] == executions[index]["level"] + 1:
+            found.append(child)
+    return found
+
+
+def passkey_policy(realm):
+    """The realm's passwordless policy, every field: Keycloak rebuilds the whole policy from a PUT that names
+    its RP entity name (missing fields fall back to defaults, 'Passkeys' to off) and ignores one without it."""
+    return {k: v for k, v in realm.items() if k.startswith("webAuthnPolicyPasswordless")}
+
+
+def passkey_policy_plan(args, realm):
+    """--passkeys: the passwordless-policy fields that change, {field: new value}."""
+    if args.passkeys == "off":
+        return {"webAuthnPolicyPasswordlessPasskeysEnabled": False} \
+            if realm.get("webAuthnPolicyPasswordlessPasskeysEnabled") else {}
+    if args.passkeys != "on":
+        return {}
+    wanted = {
+        "webAuthnPolicyPasswordlessPasskeysEnabled": True,
+        # Every passkey belongs to this ID: a realm that has one keeps it unless --passkey-rp-id says otherwise.
+        "webAuthnPolicyPasswordlessRpId": args.passkey_rp_id or realm.get("webAuthnPolicyPasswordlessRpId")
+        or urllib.parse.urlparse(args.server).hostname,
+        "webAuthnPolicyPasswordlessRpEntityName": PASSKEY_RP_NAME,
+        # Discoverable credential: the browser offers the passkey before anyone typed an address.
+        "webAuthnPolicyPasswordlessResidentKey": "required",
+        "webAuthnPolicyPasswordlessRequireResidentKey": "Yes",
+        # Fingerprint, face or device PIN at every use.
+        "webAuthnPolicyPasswordlessUserVerificationRequirement": "required",
+        # One passkey per authenticator: a second one in the same keychain would replace the first there.
+        "webAuthnPolicyPasswordlessAvoidSameAuthenticatorRegister": True,
+    }
+    return {k: v for k, v in wanted.items() if realm.get(k) != v}
+
+
+def passkey_required_action(api):
+    actions = api.get("/authentication/required-actions") or []
+    return next((a for a in actions if PASSKEY_ACTION in (a.get("alias"), a.get("providerId"))), None)
+
+
+def passkey_action_plan(args, api):
+    """--passkeys: (current required action or None when the realm has not registered it, wanted enabled),
+    None when it stays."""
+    if not args.passkeys:
+        return None
+    action = passkey_required_action(api)
+    wanted = args.passkeys == "on"
+    if (action is not None and bool(action.get("enabled")) == wanted) or (action is None and not wanted):
+        return None
+    return action, wanted
+
+
+def skips_otp_after_passkey(api, executions, index):
+    """Whether the OTP subflow at `index` holds a "Condition - credential" that is false after a passkey sign-in
+    (Keycloak's own flows since 26.4: credentials webauthn-passwordless, included false)."""
+    for child in direct_children(executions, index):
+        if child.get("providerId") != "conditional-credential" or child["requirement"] == "DISABLED" \
+                or not child.get("authenticationConfig"):
+            continue
+        config = (api.get(f"/authentication/config/{child['authenticationConfig']}") or {}).get("config") or {}
+        if PASSKEY_CREDENTIAL in re.split(r"##|[,\s]+", config.get("credentials") or "") \
+                and config.get("included", "false") != "true":
+            return True
+    return False
+
+
+def passkey_otp_plan(args, api, executions):
+    """--passkeys on: the OTP subflows that would ask for the code after a passkey sign-in too."""
+    if args.passkeys != "on":
+        return []
+    return [(i, e) for i, e in otp_steps(executions) if not skips_otp_after_passkey(api, executions, i)]
+
+
+def print_passkeys(api, realm, executions):
+    action = passkey_required_action(api)
+    steps = otp_steps(executions)
+    if not steps:
+        otp = "no OTP step"
+    elif all(skips_otp_after_passkey(api, executions, i) for i, _ in steps):
+        otp = "skipped"
+    else:
+        otp = "asked as well"
+    print(f"Passkeys: sign-in {'on' if realm.get('webAuthnPolicyPasswordlessPasskeysEnabled') else 'off'}, "
+          f"setting one up (required action) {'missing' if action is None else 'on' if action.get('enabled') else 'off'}, "
+          f"RP ID {realm.get('webAuthnPolicyPasswordlessRpId') or '(host of the request)'!r}, "
+          f"resident key {realm.get('webAuthnPolicyPasswordlessResidentKey')!r}, "
+          f"user verification {realm.get('webAuthnPolicyPasswordlessUserVerificationRequirement')!r}; "
+          f"OTP code after a passkey sign-in: {otp}")
+
+
+def passkey_plan_lines(realm, policy, action, otp, in_copy=False):
+    lines = []
+    if policy:
+        changes = ", ".join(f"{k.removeprefix('webAuthnPolicyPasswordless')} {realm.get(k)!r} -> {v!r}"
+                            for k, v in policy.items())
+        lines.append(f"passkeys, passwordless policy: {changes}")
+        rp_id = policy.get("webAuthnPolicyPasswordlessRpId")
+        if rp_id and realm.get("webAuthnPolicyPasswordlessRpId"):
+            lines.append(f"  WARNING: passkeys registered for {realm['webAuthnPolicyPasswordlessRpId']!r} stop working")
+    if action is not None:
+        current, wanted = action
+        lines.append(f"passkeys, required action {PASSKEY_ACTION!r}: "
+                     + ("register it" if current is None else "off -> on" if wanted else "on -> off"))
+    for _, e in otp:
+        lines.append(f"passkeys{', in the copy' if in_copy else ''}: {e['displayName']!r} gets \"Condition - credential\" "
+                     "(no OTP code after a passkey sign-in)")
+    return lines
+
+
+def apply_passkeys(api, realm, policy, action):
+    """The realm-wide part of --passkeys: policy and required action."""
+    if policy:
+        api.call("PUT", "", {**passkey_policy(realm), **policy})
+        print(f"  passwordless policy: {', '.join(k.removeprefix('webAuthnPolicyPasswordless') for k in policy)} set")
+    if action is not None:
+        current, wanted = action
+        if current is None:
+            api.call("POST", "/authentication/register-required-action",
+                     {"providerId": PASSKEY_ACTION, "name": "Webauthn Register Passwordless"})
+            current = passkey_required_action(api)
+        if current is not None and bool(current.get("enabled")) != wanted:
+            api.call("PUT", f"/authentication/required-actions/{quote(current['alias'])}", {**current, "enabled": wanted})
+        print(f"  required action {PASSKEY_ACTION!r}: {'on' if wanted else 'off'}")
+
+
+def apply_passkey_otp_plan(api, flow_alias, plan):
+    for _, subflow in plan:
+        alias = subflow["displayName"]
+        _, headers = api.call("POST", f"/authentication/flows/{quote(alias)}/executions/execution",
+                              {"provider": "conditional-credential"})
+        new_id = headers["Location"].rstrip("/").rsplit("/", 1)[-1]
+        fresh = next(e for e in api.executions(flow_alias) if e["id"] == new_id)
+        fresh["requirement"] = "REQUIRED"
+        api.call("PUT", f"/authentication/flows/{quote(alias)}/executions", fresh)
+        api.call("POST", f"/authentication/executions/{new_id}/config",
+                 {"alias": f"passkey-skips-otp-{new_id[:8]}",
+                  "config": {"credentials": PASSKEY_CREDENTIAL, "included": "false"}})
+
+        # Appended at the end; below "Condition - user configured" it reads as the condition it is.
+        def position():
+            listed = siblings(api.executions(flow_alias), alias, flow_alias)
+            return next(n for n, e in enumerate(listed) if e["id"] == new_id), listed
+        index, listed = position()
+        while index > 0 and not (listed[index - 1].get("providerId") or "").startswith("conditional-"):
+            api.call("POST", f"/authentication/executions/{new_id}/raise-priority")
+            index, listed = position()
+        print(f"  {alias!r}: \"Condition - credential\" added (no OTP code after a passkey sign-in)")
+
+
 def apply_otp_plan(api, flow_alias, executions, plan):
     for i, e, wanted in plan:
         changed = dict(e)
@@ -409,7 +584,7 @@ def apply_otp_plan(api, flow_alias, executions, plan):
 
 
 def update_config(api, args, executions, config, auto_role=None, flow_alias=None, all_executions=None,
-                  reset_alias=None, reset_executions=None, forgot=None):
+                  reset_alias=None, reset_executions=None, forgot=None, passkeys=(None, {}, None)):
     """The bound flow already uses our forms: merge --config (and the automatic role) into their config."""
     plan = []
     for execution in executions:
@@ -425,7 +600,10 @@ def update_config(api, args, executions, config, auto_role=None, flow_alias=None
             plan.append((execution, changed))
     otp = otp_plan(args, all_executions or [])
     reset = reset_otp_plan(args, reset_executions or [])
-    if not plan and not otp and not reset and forgot is None:
+    realm, passkey_policy_changes, passkey_action = passkeys
+    passkey_otp = passkey_otp_plan(args, api, all_executions or [])
+    passkey_lines = passkey_plan_lines(realm, passkey_policy_changes, passkey_action, passkey_otp)
+    if not plan and not otp and not reset and forgot is None and not passkey_lines:
         print("\nThe bound flow already uses the login-link forms with this config; nothing to do.")
         return
     print("\nPlan:")
@@ -437,6 +615,8 @@ def update_config(api, args, executions, config, auto_role=None, flow_alias=None
         print(f"  - password reset keeps the authenticator: {e['displayName']!r} in {reset_alias!r} -> {wanted}")
     if forgot is not None:
         print(f"  - {forgot_password_change(forgot)}")
+    for line in passkey_lines:
+        print(f"  - {line}")
     if not args.apply:
         print("\nDry run - nothing changed. Run again with --apply.")
         return
@@ -457,6 +637,9 @@ def update_config(api, args, executions, config, auto_role=None, flow_alias=None
     apply_otp_plan(api, flow_alias, all_executions or [], otp)
     apply_otp_plan(api, reset_alias, reset_executions or [], reset)
     apply_forgot_password(api, forgot)
+    apply_passkey_otp_plan(api, flow_alias, passkey_otp)
+    if passkey_policy_changes or passkey_action is not None:
+        apply_passkeys(api, api.get(""), passkey_policy_changes, passkey_action)
 
 
 def replace_forms(api, new_alias, config):
@@ -506,6 +689,13 @@ def main():
     p.add_argument("--password", choices=("on", "off"),
                    help="on: password next to the link and \"Forgot password\" in the realm; off: link only, "
                         "no password reset page either (with --bind-flow: \"Forgot password\" only)")
+    p.add_argument("--passkeys", choices=("on", "off"),
+                   help="on: sign-in with a passkey, setting one up from the app, the passwordless policy for passkeys "
+                        "and no OTP code after a passkey; off: no passkey sign-in, no new passkeys "
+                        "(with --bind-flow: policy and required action only)")
+    p.add_argument("--passkey-rp-id", metavar="HOST",
+                   help="with --passkeys on: RP ID of the passkeys (default: the realm's, else the host of --server); "
+                        "changing it makes registered passkeys unusable")
     p.add_argument("--bind-flow", metavar="ALIAS", help="only bind this flow as browser flow (roll back)")
     p.add_argument("--apply", action="store_true", help="make the changes after a confirmation (default: dry run)")
     p.add_argument("--yes", action="store_true", help="with --apply: do not ask before changing anything")
@@ -513,18 +703,26 @@ def main():
     args.server = args.server.rstrip("/")
     if not (args.admin_user or args.admin_client or os.environ.get("KC_ADMIN_TOKEN")):
         p.error("pass --admin-user, --admin-client or KC_ADMIN_TOKEN")
+    if args.passkey_rp_id and args.passkeys != "on":
+        p.error("--passkey-rp-id goes with --passkeys on")
 
     api = Api(args.server, args.realm, Auth(args))
     try:
         if args.bind_flow:
             bind(api, args.realm, args.bind_flow, args.apply)
             # Rolled back to Keycloak's password forms: accounts registered through the link need the reset.
-            forgot = forgot_password_plan(args, api.get(""))
+            realm = api.get("")
+            forgot = forgot_password_plan(args, realm)
+            # The flow bound here is left as it is: only the realm-wide part of --passkeys.
+            policy, action = passkey_policy_plan(args, realm), passkey_action_plan(args, api)
             if args.apply:
                 apply_forgot_password(api, forgot)
+                apply_passkeys(api, realm, policy, action)
             else:
                 if forgot is not None:
                     print(forgot_password_change(forgot))
+                for line in passkey_plan_lines(realm, policy, action, []):
+                    print(line)
                 print("Dry run - nothing changed. Run again with --apply.")
         else:
             setup(api, args)

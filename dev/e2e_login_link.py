@@ -11,6 +11,9 @@ from Mailpit. Standard library only.
   python dev/e2e_login_link.py --identifier-first   # sets up realm autologg-dev-idf (Username Form + Password Form)
   python dev/e2e_login_link.py --organization       # sets up realm autologg-dev-org (organizations on, like staging-autologg)
   python dev/e2e_login_link.py --plain              # realm autologg-dev-plain: our theme, Keycloak's own flow (like prod)
+
+[22] (passkeys) runs dev/e2e_passkeys.mjs in headless Chrome with a virtual WebAuthn authenticator; it needs
+Node 22+ and Chrome (--chrome <path> if not in the usual place) and is skipped without Node.
 """
 import argparse
 import base64
@@ -22,6 +25,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import struct
 import subprocess
 import sys
@@ -33,6 +37,8 @@ from html.parser import HTMLParser
 
 KEYCLOAK = "http://localhost:8080"
 MAILPIT = "http://localhost:8025"
+CHROME = None  # [22] finds Chrome itself unless --chrome says where
+DB_CONTAINER = "al5388-keycloak-db-1"  # docker compose -p al5388
 CLIENT = "account-console"
 DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
 PHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"
@@ -529,7 +535,7 @@ def terms_stored(realm, user):
     if (user.get("attributes") or {}).get("terms_and_conditions"):
         return True
     try:
-        rows = subprocess.run(["docker", "exec", "al5388-keycloak-db-1", "psql", "-U", "admin", "-d", "keycloak", "-tAc",
+        rows = subprocess.run(["docker", "exec", DB_CONTAINER, "psql", "-U", "admin", "-d", "keycloak", "-tAc",
                                "select count(*) from user_attribute where name = 'terms_and_conditions' "
                                f"and user_id = '{user['id']}'"], capture_output=True, text=True, timeout=30).stdout.strip()
         return rows == "1"
@@ -821,13 +827,21 @@ def setup_script_copy(identifier_first, organization=False):
     copy_dev_realm(call, realm, "AutoLogg Dev (Setup-Kopie)")
     try:
         admin_call(realm, "POST", "/roles", {"name": "microsoft-login-only"})
-        original = admin_call(realm, "GET", "")["browserFlow"]
-        out = run_setup_script(realm, "--otp-step", "off", "--password", "off", "--apply", "--yes")
+        # Prod's flow is older than Keycloak 26.4: a copy of the built-in one (which cannot be changed)
+        # without "Condition - credential".
+        original = "browser before 26.4"
+        admin_call(realm, "POST", "/authentication/flows/browser/copy", {"newName": original})
+        drop_passkey_conditions(realm, original)
+        admin_call(realm, "PUT", "", {"browserFlow": original})
+        out = run_setup_script(realm, "--otp-step", "off", "--password", "off", "--passkeys", "on", "--apply", "--yes")
         bound = admin_call(realm, "GET", "")["browserFlow"]
         check(out.returncode == 0 and bound == f"{original} with login link", f"copy bound ({bound!r})")
         check(otp_requirement(realm) == "DISABLED" and otp_requirement(realm, original) == "CONDITIONAL",
               "--otp-step off set in the copy before binding; the original flow is untouched")
         check(reset_otp_requirement(realm) == "CONDITIONAL", "off leaves the reset flow as it was")
+        check(passkey_conditions(realm) and not passkey_conditions(realm, original)
+              and admin_call(realm, "GET", "").get("webAuthnPolicyPasswordlessPasskeysEnabled") is True,
+              "--passkeys on: \"Condition - credential\" in the copy only, passkeys in the policy")
         flow = admin_call(realm, "GET", f"/authentication/flows/{urllib.parse.quote(bound, safe='')}/executions")
         ours = next(e for e in flow if (e.get("providerId") or "").startswith("autologg-"))
         cfg = admin_call(realm, "GET", f"/authentication/config/{ours['authenticationConfig']}")["config"]
@@ -901,6 +915,163 @@ def password_switch(realm, identifier_first, organization=False):
     finally:
         admin_call(realm, "PUT", "", {"resetPasswordAllowed": before})
         configure_execution(admin_token(), realm, {"passwordLogin": "true"})
+
+
+PASSKEY_ACTION = "webauthn-register-passwordless"
+
+
+def flow_executions(realm, flow=None):
+    flow = flow or admin_call(realm, "GET", "")["browserFlow"]
+    return admin_call(realm, "GET", f"/authentication/flows/{urllib.parse.quote(flow, safe='')}/executions")
+
+
+def passkey_conditions(realm, flow=None):
+    """Configs of the flow's "Condition - credential" steps."""
+    return [admin_call(realm, "GET", f"/authentication/config/{e['authenticationConfig']}")["config"]
+            for e in flow_executions(realm, flow)
+            if e.get("providerId") == "conditional-credential" and e.get("authenticationConfig")]
+
+
+def drop_passkey_conditions(realm, flow=None):
+    """Makes the flow look like one from before Keycloak 26.4 (staging, prod): no "Condition - credential"."""
+    for e in flow_executions(realm, flow):
+        if e.get("providerId") == "conditional-credential":
+            admin_call(realm, "DELETE", f"/authentication/executions/{e['id']}")
+
+
+def passkey_required_action(realm):
+    return next((a for a in admin_call(realm, "GET", "/authentication/required-actions") if a["alias"] == PASSKEY_ACTION),
+                None)
+
+
+def passkey_switch(realm, identifier_first, organization=False):
+    print("\n[21] setup script --passkeys: passkey sign-in, setting one up from the app, no OTP code after a passkey")
+    before = admin_call(realm, "GET", "").get("webAuthnPolicyPasswordlessPasskeysEnabled")
+    drop_passkey_conditions(realm)
+    try:
+        out = run_setup_script(realm, "--passkeys", "on")
+        check(out.returncode == 0 and "OTP code after a passkey sign-in: asked as well" in out.stdout
+              and 'gets "Condition - credential"' in out.stdout,
+              "dry run on a flow without the check: the code would be asked after a passkey, the plan adds the condition")
+        out = run_setup_script(realm, "--passkeys", "on", "--apply", "--yes")
+        rep = admin_call(realm, "GET", "")
+        check(out.returncode == 0 and rep.get("webAuthnPolicyPasswordlessPasskeysEnabled") is True
+              and rep["webAuthnPolicyPasswordlessRpId"] == urllib.parse.urlparse(KEYCLOAK).hostname
+              and rep["webAuthnPolicyPasswordlessResidentKey"] == "required"
+              and rep["webAuthnPolicyPasswordlessUserVerificationRequirement"] == "required",
+              "--passkeys on: passwordless policy with passkeys, RP ID of the server, resident key, user verification")
+        check(rep["webAuthnPolicyPasswordlessRpEntityName"] == "AutoLogg"
+              and rep["webAuthnPolicyPasswordlessAvoidSameAuthenticatorRegister"] is True,
+              "named AutoLogg, one passkey per authenticator")
+        check((passkey_required_action(realm) or {}).get("enabled") is True, f"required action {PASSKEY_ACTION} on")
+        check({"credentials": "webauthn-passwordless", "included": "false"} in passkey_conditions(realm),
+              "the OTP step gets \"Condition - credential\": no code after a passkey")
+        if out.returncode != 0:
+            print(out.stdout[-800:], out.stderr[-800:])
+        desk = Browser("desk", DESKTOP_UA)
+        start_login(desk, realm)
+        check('id="authenticateWebAuthnButton"' in desk.html and 'autocomplete="username webauthn"' in desk.html,
+              "login page offers the passkey: autofill in the address field and \"Mit Passkey anmelden\"")
+        out = run_setup_script(realm, "--passkeys", "on")
+        check(out.returncode == 0 and "nothing to do" in out.stdout and "sign-in on" in out.stdout,
+              "a second run has nothing to do")
+
+        rp_id = rep["webAuthnPolicyPasswordlessRpId"]
+        out = run_setup_script(realm, "--passkeys", "off", "--apply", "--yes")
+        rep = admin_call(realm, "GET", "")
+        check(out.returncode == 0 and rep.get("webAuthnPolicyPasswordlessPasskeysEnabled") is False
+              and (passkey_required_action(realm) or {}).get("enabled") is False,
+              "--passkeys off: no passkey sign-in, no new passkeys")
+        check(rep["webAuthnPolicyPasswordlessRpId"] == rp_id and rep["webAuthnPolicyPasswordlessResidentKey"] == "required",
+              "the rest of the policy stays (Keycloak rebuilds it from every PUT that names it)")
+        desk = Browser("desk", DESKTOP_UA)
+        start_login(desk, realm)
+        check("authenticateWebAuthnButton" not in desk.html, "login page without passkey")
+        out = run_setup_script(realm, "--passkey-rp-id", "example.com")
+        check(out.returncode != 0 and "--passkeys on" in out.stderr, "--passkey-rp-id only with --passkeys on")
+    finally:
+        run_setup_script(realm, "--passkeys", "on" if before else "off", "--apply", "--yes")
+
+
+def passkeys_in_browser(identifier_first, organization=False):
+    print("\n[22] passkey set up, used and removed in Chrome (virtual WebAuthn authenticator)")
+    if identifier_first or organization:
+        return  # once is enough; the browser script plays the one-page form of staging
+    node = shutil.which("node")
+    if not node:
+        print("  skip: no node")
+        return
+    script = os.path.join(os.path.dirname(__file__), "e2e_passkeys.mjs")
+    realm, address, secret = "autologg-dev", "passkey@autologg.local", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+    before = admin_call(realm, "GET", "").get("webAuthnPolicyPasswordlessPasskeysEnabled")
+    run_setup_script(realm, "--passkeys", "on", "--apply", "--yes")
+    configure_execution(admin_token(), realm, {"passwordLogin": "false"})
+    delete_users(realm, address)
+    # With an authenticator app (two-factor sign-in): a passkey must not ask for its code. Credentials come in
+    # through the partial import only, and imported users get no default roles (no audience "account").
+    admin_call(realm, "POST", "/partialImport", {"ifResourceExists": "FAIL", "users": [{
+        "username": address, "email": address, "firstName": "Pass", "lastName": "KEY", "enabled": True,
+        "emailVerified": True, "realmRoles": [f"default-roles-{realm}"],
+        "credentials": [{"type": "otp", "userLabel": "Testtelefon", "secretData": json.dumps({"value": secret}),
+                         "credentialData": json.dumps({"subType": "totp", "digits": 6, "counter": 0, "period": 30,
+                                                       "algorithm": "HmacSHA1"})}]}]})
+    try:
+        clear_mails()
+        run = subprocess.run([node, script, "--keycloak", KEYCLOAK, "--mailpit", MAILPIT, "--realm", realm,
+                              "--address", address, "--otp-secret", secret, *(["--chrome", CHROME] if CHROME else [])],
+                             capture_output=True, text=True, encoding="utf-8", timeout=240)
+        steps = {}
+        for line in run.stdout.splitlines():
+            if line.startswith("{"):
+                step = json.loads(line)
+                steps[step["step"]] = step
+        if "error" in steps or "login page" not in steps:
+            print("  " + (steps.get("error", {}).get("message") or run.stderr[-800:] or run.stdout[-800:]))
+        login, register = steps.get("login page", {}), steps.get("register page", {})
+        check(login.get("passkeyButton") and login.get("autofill") == "username webauthn"
+              and login.get("buttonText") == "Mit Passkey anmelden", "login page: passkey autofill and \"Mit Passkey anmelden\"")
+        check(register.get("mailedCode") and register.get("otpAfterCode") and register.get("title") == "Passkey einrichten",
+              "kc_action=webauthn-register-passwordless: after the e-mailed and the app code the page \"Passkey einrichten\"")
+        registered = steps.get("registered", {})
+        dialog = (registered.get("dialogs") or [{}])[0]
+        check(registered.get("status") == "success" and registered.get("onAuthenticator") == 1
+              and registered.get("residentKey") is True
+              and registered.get("rpId") == urllib.parse.urlparse(KEYCLOAK).hostname,
+              "passkey created (discoverable, for the RP ID), back with kc_action_status=success")
+        check((dialog.get("message") or "").startswith("Wie soll der Passkey")
+              and dialog.get("suggested") not in (None, "", "Passkey"),
+              f"its name asked for, the device suggested ({dialog.get('suggested')!r})")
+        listed = steps.get("account api", {})
+        types = listed.get("body") if isinstance(listed.get("body"), list) else []
+        credential = next((m["credential"] for t in types if t["type"] == "webauthn-passwordless"
+                           for m in t.get("userCredentialMetadatas", [])), {})
+        check(listed.get("status") == 200 and credential.get("id") and credential.get("userLabel") == dialog.get("suggested")
+              and isinstance(credential.get("createdDate"), int),
+              "account API lists it the way the app reads it (type webauthn-passwordless: id, name, date)")
+        for name in ("passkey sign-in (autofill)", "passkey sign-in (button)"):
+            step = steps.get(name, {})
+            check(step.get("code") is True and step.get("otpAsked") is False and step.get("mailsSent") == 0,
+                  f"{name.removeprefix('passkey sign-in ')}: signed in with the passkey - no e-mail, no app code")
+        check(steps.get("delete page", {}).get("title") == f"„{dialog.get('suggested')}“ entfernen",
+              "kc_action=delete_credential: „<name>“ entfernen")
+        removed = steps.get("removed", {})
+        left = ((removed.get("left") or {}).get("body") or [{}])
+        check(removed.get("status") == "success" and not left[0].get("userCredentialMetadatas"), "removed, the list is empty")
+        gone = steps.get("removed passkey", {})
+        check(gone.get("signedIn") is False and "kennt AutoLogg nicht" in (gone.get("error") or ""),
+              "the removed passkey no longer signs in, the page says why")
+
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address)
+        _, code, _ = latest_mail(address)
+        page = desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check("kc-otp-login-form" in page.forms and desk.code_from_redirects() is None,
+              "with the link the app code is still asked")
+    finally:
+        delete_users(realm, address)
+        configure_execution(admin_token(), realm, {"passwordLogin": "true"})
+        if not before:
+            run_setup_script(realm, "--passkeys", "off", "--apply", "--yes")
 
 
 def admin_call(realm, method, path, body=None):
@@ -1141,14 +1312,20 @@ def admin_token():
 
 
 def main():
-    global KEYCLOAK
+    global KEYCLOAK, MAILPIT, CHROME, DB_CONTAINER
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--identifier-first", action="store_true")
     p.add_argument("--organization", action="store_true")
     p.add_argument("--plain", action="store_true", help="theme only, Keycloak's own flow (like prod)")
     p.add_argument("--keycloak", default=KEYCLOAK, help=f"Keycloak base URL (default {KEYCLOAK})")
+    p.add_argument("--mailpit", default=MAILPIT, help=f"Mailpit base URL (default {MAILPIT})")
+    p.add_argument("--db-container", default=DB_CONTAINER, help=f"Keycloak's database container (default {DB_CONTAINER})")
+    p.add_argument("--chrome", help="Chrome for [22] (default: the usual install paths)")
     args = p.parse_args()
     KEYCLOAK = args.keycloak.rstrip("/")
+    MAILPIT = args.mailpit.rstrip("/")
+    DB_CONTAINER = args.db_container
+    CHROME = args.chrome
 
     realm = "autologg-dev"
     token = admin_token()
@@ -1179,6 +1356,8 @@ def main():
     registration_cap(realm, args.identifier_first, args.organization)
     two_factor(realm, args.identifier_first, args.organization)
     password_switch(realm, args.identifier_first, args.organization)
+    passkey_switch(realm, args.identifier_first, args.organization)
+    passkeys_in_browser(args.identifier_first, args.organization)
     setup_script_copy(args.identifier_first, args.organization)
     print(f"\n{'All checks passed' if not failures else str(len(failures)) + ' check(s) failed'}")
     sys.exit(1 if failures else 0)
