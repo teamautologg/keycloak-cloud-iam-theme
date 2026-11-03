@@ -37,6 +37,7 @@ final class LoginLink {
     static final String HOURLY_PREFIX = "autologg-login-link-hourly:";
     static final String FAILURES_PREFIX = "autologg-login-link-failures:";
     static final String IP_PREFIX = "autologg-login-link-ip:";
+    static final String REGISTRATIONS_PREFIX = "autologg-login-link-registrations:";
 
     // Entries of a link.
     static final String LINK_REALM = "realm";
@@ -114,6 +115,10 @@ final class LoginLink {
 
     static String ipKey(String realmId, String ipKey, long hour) {
         return IP_PREFIX + realmId + ":" + ipKey + ":" + hour;
+    }
+
+    static String registrationsKey(String realmId, long hour) {
+        return REGISTRATIONS_PREFIX + realmId + ":" + hour;
     }
 
     static String failuresKey(String realmId, String userId, long hour) {

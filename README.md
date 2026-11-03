@@ -43,7 +43,10 @@ On desktops the waiting page offers *Gmail öffnen* / *Outlook öffnen* as its m
 for Mac register it, classic Outlook does not, so there the button does nothing (no browser link by
 decision, 28.10.2026); else the web mailbox in a new tab):
 known consumer domains directly, company domains by their MX records (Microsoft 365, Google
-Workspace; looked up with a 0.5 s timeout, cached 6 h). Gmail opens on a search for our sender, spam
+Workspace; cached 6 h, a lookup without an answer only 5 minutes). A lookup runs only for an e-mail
+that passed the sending limits, at most four at a time, one try of 0.5 s per DNS server; when all
+four are busy the page simply has no button - made-up domains in a flood of requests cannot tie up
+Keycloak's threads. Gmail opens on a search for our sender, spam
 included. Not on phones: there the login runs in the app's in-app browser, where a link would leave
 the waiting page. The button depends on the domain only, not on whether an account exists.
 
@@ -64,6 +67,12 @@ button is the main button, and posted passwords are ignored - every post sends t
 logins and passkeys stay. `passwordLogin=true` offers the password next to the link (e-mail first:
 page two with both). This covers the browser login only; the API's password grant (direct grant
 flow) is separate.
+
+Passwords are not needed for now but have to come back quickly (Thomas, 29.10.2026). The setup script
+switches them in one run: `--password off` sets `passwordLogin=false` in the forms and turns Keycloak's
+*Forgot password* off in the realm, so there is no reset page either, not even by its address;
+`--password on` brings both back - accounts registered through the link have no password and set one
+through *Passwort zurücksetzen*. API logins (direct grant) and demo accounts keep their passwords.
 
 Registration: if the realm lets people register, an unknown address gets an e-mail *Dein
 AutoLogg-Konto anlegen* instead of nothing - same waiting page; the link opens *Konto anlegen*
@@ -91,9 +100,18 @@ neither a login nor a registration e-mail, and the page tells them to use *Mit M
 - E-mails: at most one per address every 30 seconds and 10 per hour, and at most 30 requests per
   public IP address and hour across all addresses (private addresses - a proxy without forwarded
   headers - are not limited; Keycloak logs that once).
+- Registration e-mails (unknown addresses): at most 100 per realm and hour from all addresses and
+  networks together (`maxRegistrationsPerHour`). Above it unknown addresses get no e-mail - the page
+  looks the same - and Keycloak logs a warning once per realm and hour; logins of existing accounts go
+  on. Against someone who mails made-up or third-party addresses through the registration from many
+  IPs. The price: whoever runs the cap out also stops real sign-ups until the hour is over. The count
+  lives in Keycloak's single-use store and is not atomic, so parallel requests can overshoot it a little.
 - Disabled or locked users, users without e-mail, users of excluded identity providers or roles,
-  and unknown addresses when the realm does not allow registration get no e-mail. The page looks the same, so it does not tell which addresses have an
-  account (sending makes the response slower, as with Keycloak's password reset).
+  and unknown addresses when the realm does not allow registration get no e-mail. The page looks the same, and an answer
+  that sends nothing waits about as long as sending takes in the realm (`SendTiming`: moving average
+  and spread of the recent sends, at most 5 s) - so neither the page nor the response time tells
+  which addresses have an account, also not after someone ran the registration cap out on purpose.
+  (Only when the mail server fails, a real send shows an error where no send shows the waiting page.)
 - A login through the e-mail proves the address: it is marked verified and a pending
   *Verify Email* action is dropped. If the address was not verified before, everything set up on
   the account until then is removed - passwords, OTP, passkeys, identity provider links - and all
@@ -114,12 +132,36 @@ Optional, on the execution (Authentication -> flow -> gear icon). Without a conf
 | `resendCooldownSeconds` | 30 | minimum time between two e-mails to one address |
 | `maxSendsPerHour` | 10 | e-mails per address and hour |
 | `maxSendsPerIpPerHour` | 30 | e-mail requests per public IP address and hour |
+| `maxRegistrationsPerHour` | 100 | registration e-mails per realm and hour, all addresses together; 0 stops them |
 | `excludedIdentityProviders` | - | IdP aliases whose users keep signing in through the IdP (e.g. company Entra ID tenants) |
 | `markEmailVerified` | true | mark the address verified after a login through the e-mail |
 | `passwordLogin` | false | `false`: the pages ask for the address only and send the link; the form accepts no password (passkeys still work). `true`: password next to the link |
 | `emailFirst` | true | with `passwordLogin=true`: page one asks for the address, page two offers link or password |
 | `excludedRoles` | - | realm roles whose users get no e-mail (e.g. `microsoft-login-only`) |
 | `excludedDomains` | - | e-mail domains (subdomains included) without login or registration e-mail |
+
+### Two-factor sign-in (authenticator app)
+
+The flow's OTP subflow (*Browser - Conditional OTP*, in newer realms *Browser - Conditional 2FA*)
+follows our form: with `--otp-step on` the setup script sets it to CONDITIONAL, so accounts that set
+up an authenticator app enter its code after the link, the code from the e-mail or the password;
+accounts without one are not asked. Only a subflow with *Condition - user configured* next to the
+OTP Form counts. `--otp-step on` also disables *Reset OTP* in the realm's reset-credentials flow:
+Keycloak's default removes the authenticator on a password reset by e-mail, which makes the mailbox
+alone enough again. A lost phone then goes through the support (admin console: user -> Credentials ->
+delete the OTP). `--otp-step off` disables the OTP step and leaves the reset flow alone. (On staging
+since 29.10.2026; the script prints both states.)
+
+- Set up from the app: an authorization request with `kc_action=CONFIGURE_TOTP`. Keycloak asks to
+  sign in again when the last sign-in is older than 5 minutes (required action config
+  `max_auth_age`) - our form then shows the address fixed and sends the link - and comes back with
+  `kc_action_status=success|cancelled|error`.
+- Remove: `kc_action=delete_credential:<credential id>` (Keycloak asks to confirm); the account REST
+  API `/realms/{realm}/account/credentials` lists the ids.
+- Keycloak's OTP pages with our styles and texts (du, the app's words). Logins through Google, Apple
+  or Microsoft skip the step - there the provider's own protection applies. Keycloak's direct grant
+  (api-v2 `/v2/user/login`) asks accounts with an authenticator for its code as well. The
+  pre-hijacking reset also removes an authenticator set up before the address was verified.
 
 ### Rollout per realm
 
@@ -135,8 +177,13 @@ Optional, on the execution (Authentication -> flow -> gear icon). Without a conf
    ```
 
    The script copies the bound browser flow, replaces the password forms in the copy and binds the
-   copy. The old flow stays as it is; roll back with `--bind-flow <old alias> --apply`. Pass
-   `--config key=value` for an execution config.
+   copy. The old flow stays as it is; roll back with `--bind-flow <old alias> --apply` (after
+   `--password off` add `--password on`, so accounts without a password can set one). Pass
+   `--config key=value` for an execution config, `--password on|off` for the password and
+   `--otp-step on` for two-factor sign-in. On a
+   realm that already uses the forms the script changes only those (plus the role
+   `microsoft-login-only`, which it adds to `excludedRoles` when the realm has it - added, never
+   replacing the roles set there).
 
 ## Development
 
@@ -168,7 +215,11 @@ python dev/e2e_login_link.py --plain
 there *Organization Identity-First Login* asks for the address first and the login page after it
 hides the address field, for unknown addresses too.
 `--plain` checks the theme without the login link (Keycloak's own browser flow, as in prod):
-login, wrong password, password reset, registration.
+login, wrong password, password reset, registration, two-factor sign-in. The other variants also
+switch the OTP step off and on with the setup script and set up an authenticator through
+`kc_action=CONFIGURE_TOTP` (scenario 18) and switch the password off and on with `--password`
+(scenario 20); scenario 19 runs the script on a fresh copy of the dev realm (copy, bind, OTP step,
+reset flow, `--password off`, `excludedRoles`), the way prod will go.
 
 Each run types a few wrong codes on purpose; three runs within an hour reach the limit of 20 wrong
 codes per account and hour, and the code scenarios fail. `docker compose -p al5388 restart keycloak`

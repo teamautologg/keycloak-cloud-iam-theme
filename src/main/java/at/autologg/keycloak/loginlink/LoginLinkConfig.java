@@ -24,6 +24,7 @@ final class LoginLinkConfig {
     static final String RESEND_COOLDOWN_SECONDS = "resendCooldownSeconds";
     static final String MAX_SENDS_PER_HOUR = "maxSendsPerHour";
     static final String MAX_SENDS_PER_IP_PER_HOUR = "maxSendsPerIpPerHour";
+    static final String MAX_REGISTRATIONS_PER_HOUR = "maxRegistrationsPerHour";
     static final String EXCLUDED_IDENTITY_PROVIDERS = "excludedIdentityProviders";
     static final String MARK_EMAIL_VERIFIED = "markEmailVerified";
     static final String PASSWORD_LOGIN = "passwordLogin";
@@ -37,6 +38,7 @@ final class LoginLinkConfig {
     static final int DEFAULT_RESEND_COOLDOWN_SECONDS = 30;
     static final int DEFAULT_MAX_SENDS_PER_HOUR = 10;
     static final int DEFAULT_MAX_SENDS_PER_IP_PER_HOUR = 30;
+    static final int DEFAULT_MAX_REGISTRATIONS_PER_HOUR = 100;
 
     final int linkTtlMinutes;
     final int codeLength;
@@ -44,6 +46,8 @@ final class LoginLinkConfig {
     final int resendCooldownSeconds;
     final int maxSendsPerHour;
     final int maxSendsPerIpPerHour;
+    /** Registration e-mails (unknown addresses) per realm and hour, from everywhere together. */
+    final int maxRegistrationsPerHour;
     final Set<String> excludedIdentityProviders;
     final boolean markEmailVerified;
     /** False (default): the form asks for the address only and never checks a password. */
@@ -62,6 +66,7 @@ final class LoginLinkConfig {
         resendCooldownSeconds = intValue(values, RESEND_COOLDOWN_SECONDS, DEFAULT_RESEND_COOLDOWN_SECONDS, 0, 600);
         maxSendsPerHour = intValue(values, MAX_SENDS_PER_HOUR, DEFAULT_MAX_SENDS_PER_HOUR, 1, 100);
         maxSendsPerIpPerHour = intValue(values, MAX_SENDS_PER_IP_PER_HOUR, DEFAULT_MAX_SENDS_PER_IP_PER_HOUR, 1, 1000);
+        maxRegistrationsPerHour = intValue(values, MAX_REGISTRATIONS_PER_HOUR, DEFAULT_MAX_REGISTRATIONS_PER_HOUR, 0, 100000);
         excludedIdentityProviders = names(values.get(EXCLUDED_IDENTITY_PROVIDERS), true);
         markEmailVerified = flag(values, MARK_EMAIL_VERIFIED);
         passwordLogin = flag(values, PASSWORD_LOGIN, false);
@@ -124,6 +129,13 @@ final class LoginLinkConfig {
                 .helpText("Upper bound of login e-mail requests from one public IP address within one hour, across all addresses. Private addresses (a proxy without forwarded headers) are not limited. 1-1000, default 30.")
                 .type(ProviderConfigProperty.STRING_TYPE)
                 .defaultValue(String.valueOf(DEFAULT_MAX_SENDS_PER_IP_PER_HOUR))
+                .add()
+                .property()
+                .name(MAX_REGISTRATIONS_PER_HOUR)
+                .label("Registration e-mails per hour")
+                .helpText("Upper bound of e-mails that create an account (unknown addresses), per realm and hour from all addresses and networks together. Above it unknown addresses get no e-mail (the page looks the same) and Keycloak logs a warning; logins of existing accounts are not affected. 0 stops registration e-mails. Default 100.")
+                .type(ProviderConfigProperty.STRING_TYPE)
+                .defaultValue(String.valueOf(DEFAULT_MAX_REGISTRATIONS_PER_HOUR))
                 .add()
                 .property()
                 .name(EXCLUDED_IDENTITY_PROVIDERS)

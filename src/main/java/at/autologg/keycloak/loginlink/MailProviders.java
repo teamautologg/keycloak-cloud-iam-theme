@@ -9,10 +9,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 import javax.naming.Context;
+import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
+import javax.naming.NamingException;
 import javax.naming.directory.Attribute;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.DirContext;
@@ -77,8 +81,18 @@ final class MailProviders {
 
     private static final Pattern DOMAIN = Pattern.compile("[a-z0-9-]+(\\.[a-z0-9-]+)+");
     private static final long CACHE_SECONDS = 6 * 3600;
+    /** A lookup that got no answer is tried again after this, not after 6 h. */
+    private static final long FAILURE_CACHE_SECONDS = 300;
     private static final int CACHE_LIMIT = 10_000;
     private static final Map<String, Cached> MX_CACHE = new ConcurrentHashMap<>();
+    /**
+     * DNS lookups at the same time. Each may take up to about a second; made-up domains in a flood of
+     * requests must not tie up Keycloak's worker threads (staging and prod share the server). When all
+     * are busy the page simply shows no mailbox button.
+     */
+    private static final Semaphore LOOKUPS = new Semaphore(4);
+    /** MX hosts of a domain, null when DNS did not answer; tests put a fake in. */
+    static volatile Function<String, List<String>> resolver = MailProviders::lookupMx;
 
     private record Cached(Optional<MailProvider> provider, long until) {
     }
@@ -91,13 +105,20 @@ final class MailProviders {
      * @param sender  the realm's From address, for a Gmail search that finds the e-mail; may be null
      */
     static Optional<MailProvider> forAddress(String address, String sender) {
+        return forAddress(address, sender, true);
+    }
+
+    /**
+     * @param lookup whether a company domain may be looked up in DNS now; else only an earlier answer counts
+     */
+    static Optional<MailProvider> forAddress(String address, String sender, boolean lookup) {
         String domain = domainOf(address);
         if (domain == null) {
             return Optional.empty();
         }
         Optional<MailProvider> provider = Optional.ofNullable(CONSUMER.get(domain));
         if (provider.isEmpty()) {
-            provider = byMx(domain);
+            provider = byMx(domain, lookup);
         }
         return provider.map(found -> GMAIL.equals(found.name()) ? new MailProvider(GMAIL, gmailSearch(sender)) : found);
     }
@@ -137,25 +158,35 @@ final class MailProviders {
         return GMAIL_URL + "#search/" + URLEncoder.encode(query, StandardCharsets.UTF_8);
     }
 
-    private static Optional<MailProvider> byMx(String domain) {
+    private static Optional<MailProvider> byMx(String domain, boolean lookup) {
         long now = System.currentTimeMillis() / 1000;
         Cached cached = MX_CACHE.get(domain);
         if (cached != null && cached.until() > now) {
             return cached.provider();
         }
-        Optional<MailProvider> provider = classifyMx(lookupMx(domain));
+        if (!lookup || !LOOKUPS.tryAcquire()) {
+            return Optional.empty();
+        }
+        List<String> hosts;
+        try {
+            hosts = resolver.apply(domain);
+        } finally {
+            LOOKUPS.release();
+        }
+        Optional<MailProvider> provider = hosts == null ? Optional.empty() : classifyMx(hosts);
         if (MX_CACHE.size() >= CACHE_LIMIT) {
             MX_CACHE.clear();
         }
-        MX_CACHE.put(domain, new Cached(provider, now + CACHE_SECONDS));
+        MX_CACHE.put(domain, new Cached(provider, now + (hosts == null ? FAILURE_CACHE_SECONDS : CACHE_SECONDS)));
         return provider;
     }
 
-    /** MX hosts of the domain; empty when there are none or DNS does not answer within about a second. */
+    /** MX hosts of the domain; empty when it has none or does not exist, null when DNS did not answer in time. */
     private static List<String> lookupMx(String domain) {
         List<String> hosts = new ArrayList<>();
         Hashtable<String, String> env = new Hashtable<>();
         env.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.dns.DnsContextFactory");
+        // One try of 500 ms per DNS server ("retries" counts the tries).
         env.put("com.sun.jndi.dns.timeout.initial", "500");
         env.put("com.sun.jndi.dns.timeout.retries", "1");
         DirContext context = null;
@@ -170,8 +201,11 @@ final class MailProviders {
                     hosts.add(parts[parts.length - 1]);
                 }
             }
-        } catch (Exception | LinkageError e) {
+        } catch (NameNotFoundException e) {
+            return hosts;  // no such domain: a definite answer
+        } catch (NamingException | RuntimeException | LinkageError e) {
             LOG.debugf("MX lookup for %s failed: %s", domain, e.toString());
+            return null;
         } finally {
             if (context != null) {
                 try {
