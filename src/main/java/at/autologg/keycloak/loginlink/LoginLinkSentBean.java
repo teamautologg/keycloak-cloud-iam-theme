@@ -18,10 +18,11 @@ public class LoginLinkSentBean {
     private final String mailboxName;
     private final String mailboxUrl;
     private final boolean mailboxApp;
+    private final boolean tapToFinish;
 
     LoginLinkSentBean(String identifier, String statusUrl, int codeLength, long expiresInSeconds,
                       long resendAvailableInSeconds, String back, boolean denied,
-                      MailProviders.MailProvider mailbox, boolean desktop) {
+                      MailProviders.MailProvider mailbox, boolean desktop, boolean tapToFinish) {
         this.identifier = identifier;
         this.statusUrl = statusUrl;
         this.codeLength = codeLength;
@@ -33,6 +34,12 @@ public class LoginLinkSentBean {
         this.mailboxName = mailbox == null ? "" : mailbox.name();
         this.mailboxUrl = mailbox == null ? "" : app ? mailbox.appUrl() : mailbox.url();
         this.mailboxApp = app;
+        this.tapToFinish = tapToFinish;
+    }
+
+    /** Once confirmed, the page waits for a tap instead of finishing by itself (Android app). */
+    public boolean isTapToFinish() {
+        return tapToFinish;
     }
 
     /** Web mailbox for the address ("Gmail"), empty when unknown or on a phone. */

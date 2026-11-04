@@ -1,7 +1,9 @@
 package at.autologg.keycloak.loginlink;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +16,17 @@ class UserAgentsTest {
     private static final String CHROME_ANDROID = "Mozilla/5.0 (Linux; Android 16; Pixel 8a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36";
     private static final String FIREFOX_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15.6; rv:143.0) Gecko/20100101 Firefox/143.0";
     private static final String SAFARI_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
+
+    @Test
+    void onlyAnAndroidAppScheme_finishesWithATap() {
+        assertTrue(UserAgents.finishesWithTap(CHROME_ANDROID, "at.autologg.app:/oauth2redirect"));
+        assertFalse(UserAgents.finishesWithTap(CHROME_ANDROID, "https://logbook.autologg.com/auth.html"));
+        assertFalse(UserAgents.finishesWithTap(CHROME_ANDROID, "HTTP://localhost/auth.html"));
+        assertFalse(UserAgents.finishesWithTap(SAFARI_IPHONE, "at.autologg.app:/oauth2redirect"));
+        assertFalse(UserAgents.finishesWithTap(CHROME_WINDOWS, "at.autologg.app:/oauth2redirect"));
+        assertFalse(UserAgents.finishesWithTap(null, "at.autologg.app:/oauth2redirect"));
+        assertFalse(UserAgents.finishesWithTap(CHROME_ANDROID, null));
+    }
 
     @Test
     void recognisesCommonBrowsers() {

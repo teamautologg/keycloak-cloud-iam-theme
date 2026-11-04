@@ -54,6 +54,8 @@ final class LoginLink {
     static final String LINK_REGISTER = "register";
     /** A registration link whose confirm page offers to protect the account with an authenticator app. */
     static final String LINK_OTP_OFFER = "otpOffer";
+    /** The waiting page finishes with a tap (Android app): the confirm page says so. */
+    static final String LINK_TAP_TO_FINISH = "tapToFinish";
     static final String CONFIRMED_USER = "user";
     static final String CONFIRMED_REGISTER = "register";
     static final String CONFIRMED_TERMS = "terms";

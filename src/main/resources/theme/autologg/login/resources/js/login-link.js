@@ -4,6 +4,9 @@
 // this page asks the server whether it was confirmed and then finishes the
 // login here, in the window (or app sheet) that started it. The code field
 // submits on its own once all digits are in, e.g. after autofill from Mail.
+// In an Android app the page waits for a tap instead (see UserAgents): a
+// redirect to the app from a tab in the background gets lost, and the login
+// with it.
 
 const root = document.getElementById("al-login-link");
 
@@ -16,6 +19,7 @@ if (root) {
   const codeForm = document.getElementById("kc-login-link-code-form");
   const codeInput = document.getElementById("loginLinkCode");
   const resend = document.getElementById("kc-login-link-resend");
+  const finish = document.getElementById("al-login-link-finish");
 
   let leaving = false;
   let timer;
@@ -72,7 +76,18 @@ if (root) {
         const { state } = await response.json();
         if (state === "confirmed") {
           showState("confirmed");
-          submit(checkForm);
+          if (finish) {
+            root.classList.add("al-confirmed");
+            finish.hidden = false;
+            checkForm.addEventListener("submit", (event) => {
+              if (leaving) {
+                event.preventDefault();  // a second tap would find the login used up
+              }
+              leaving = true;
+            });
+          } else {
+            submit(checkForm);
+          }
           return;
         }
         if (state === "expired" || state === "denied") {

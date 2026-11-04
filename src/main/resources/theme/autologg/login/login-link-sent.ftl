@@ -50,13 +50,23 @@
             <div id="al-login-link-status" class="al-status" role="status" aria-live="polite"
                  data-state="${loginLinkSent.denied?then('denied', 'waiting')}"
                  data-text-waiting="${msg("loginLinkWaiting")}"
-                 data-text-confirmed="${msg("loginLinkConfirmedHere")}"
+                 data-text-confirmed="${loginLinkSent.tapToFinish?then(msg("loginLinkConfirmedTap"), msg("loginLinkConfirmedHere"))}"
                  data-text-expired="${msg("loginLinkExpiredHere")}"
                  data-text-denied="${msg("loginLinkDeniedHere")}">
                 <span class="al-status-dot" aria-hidden="true"></span>
                 <span class="al-status-text">${loginLinkSent.denied?then(msg("loginLinkDeniedHere"), msg("loginLinkWaiting"))}</span>
             </div>
-            <p class="al-help al-status-hint">${msg("loginLinkSentHint")}</p>
+            <#if loginLinkSent.tapToFinish>
+                <#-- Android drops a redirect to the app from a tab in the background, so this page does not finish by itself. -->
+                <div id="al-login-link-finish" class="al-finish" hidden>
+                    <button type="submit" form="kc-login-link-check-form" class="${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!}">
+                        ${msg("loginLinkContinueToApp")}
+                    </button>
+                </div>
+                <p class="al-help al-status-hint">${msg("loginLinkSentHintTap")}</p>
+            <#else>
+                <p class="al-help al-status-hint">${msg("loginLinkSentHint")}</p>
+            </#if>
 
             <details class="al-code"<#if codeError> open</#if>>
                 <summary>${msg("loginLinkEnterCode")}</summary>

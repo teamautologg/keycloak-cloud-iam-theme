@@ -176,7 +176,7 @@ public class LoginLinkResource {
         LOG.debugf("Login link confirmed in realm %s", realm.getName());
         String address = register != null ? register : user.getEmail();
         return render(LoginLinkConfirmBean.done(LoginLinkSecrets.maskEmail(address)).registering(register != null)
-                .withOtpChosen(otpChosen), user);
+                .withOtpChosen(otpChosen).withTapToFinish("true".equals(link.get(LoginLink.LINK_TAP_TO_FINISH))), user);
     }
 
     /** A registration link of a form that offers to protect the new account with an authenticator app. */
