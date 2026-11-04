@@ -47,6 +47,7 @@ import org.keycloak.models.light.LightweightUserAdapter;
 import org.keycloak.services.validation.Validation;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.sessions.AuthenticationSessionModel;
+import org.keycloak.sessions.RootAuthenticationSessionModel;
 
 /**
  * The login-link part of the AutoLogg login forms: sending the e-mail, the
@@ -73,6 +74,12 @@ final class LoginLinkFlow {
     private final AbstractUsernameFormAuthenticator authenticator;
     private final AuthenticationFlowContext context;
     private final LoginLinkConfig config;
+    /** What a waiting login keeps in its auth session; a refusal (NOTE_DENIED) ends it instead. */
+    private static final List<String> WAITING_NOTES = List.of(LoginLink.NOTE_STATE, LoginLink.NOTE_USER,
+            LoginLink.NOTE_IDENTIFIER, LoginLink.NOTE_CODE_HASH, LoginLink.NOTE_EXPIRES_AT, LoginLink.NOTE_ATTEMPTS,
+            LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_REGISTER,
+            LoginLink.NOTE_REGISTER_VERIFIED, LoginLink.NOTE_REGISTER_VERIFIED_TOKEN);
+
     private final String back;
     private final LoginPage loginPage;
     /** This request passed the sending limits: a company domain may be looked up for the mailbox button. */
@@ -107,6 +114,62 @@ final class LoginLinkFlow {
 
     boolean isWaiting() {
         return LoginLink.STATE_SENT.equals(note(LoginLink.NOTE_STATE));
+    }
+
+    /**
+     * An app's login tab was closed while its login waited for the e-mail, and the app opens a new one: the login
+     * continues there, even if it was confirmed in the meantime, instead of asking for another e-mail. The auth
+     * session cookie ties both tabs to this browser. The new tab holds the app's new request (state, PKCE), so the
+     * old one has nothing left to do. Apps only: on a shared computer the next person to open the login would see
+     * the address and could finish the login.
+     */
+    void resumeClosedAppLogin() {
+        AuthenticationSessionModel current = context.getAuthenticationSession();
+        if (isWaiting() || context.getUser() != null || !UserAgents.isAppRedirect(current.getRedirectUri())) {
+            return;
+        }
+        RootAuthenticationSessionModel root = current.getParentSession();
+        AuthenticationSessionModel closed = null;
+        for (AuthenticationSessionModel other : root.getAuthenticationSessions().values()) {
+            if (isClosedLoginOf(other, current) && (closed == null || sentAt(other) > sentAt(closed))) {
+                closed = other;
+            }
+        }
+        if (closed == null) {
+            return;
+        }
+        for (String note : WAITING_NOTES) {
+            String value = closed.getAuthNote(note);
+            if (value != null) {
+                current.setAuthNote(note, value);
+            }
+        }
+        SingleUseObjectProvider store = context.getSession().singleUseObjects();
+        long ttl = Math.max(1, parse(closed.getAuthNote(LoginLink.NOTE_EXPIRES_AT)) - Time.currentTimeSeconds());
+        String tokenHash = closed.getAuthNote(LoginLink.NOTE_TOKEN_HASH);
+        Map<String, String> link = tokenHash == null ? null : store.get(LoginLink.linkKey(tokenHash));
+        if (link != null) {
+            Map<String, String> moved = new HashMap<>(link);
+            moved.put(LoginLink.LINK_TAB, current.getTabId());
+            store.put(LoginLink.linkKey(tokenHash), ttl, moved);
+        }
+        Map<String, String> confirmation = store.remove(LoginLink.confirmedKey(root.getId(), closed.getTabId()));
+        if (confirmation != null) {
+            store.put(LoginLink.confirmedKey(root.getId(), current.getTabId()), ttl, confirmation);
+        }
+        root.removeAuthenticationSessionByTabId(closed.getTabId());
+    }
+
+    private static boolean isClosedLoginOf(AuthenticationSessionModel other, AuthenticationSessionModel current) {
+        return !other.getTabId().equals(current.getTabId())
+                && other.getClient().getId().equals(current.getClient().getId())
+                && LoginLink.STATE_SENT.equals(other.getAuthNote(LoginLink.NOTE_STATE))
+                && other.getAuthNote(LoginLink.NOTE_DENIED) == null
+                && parse(other.getAuthNote(LoginLink.NOTE_EXPIRES_AT)) > Time.currentTimeSeconds();
+    }
+
+    private static long sentAt(AuthenticationSessionModel authSession) {
+        return parse(authSession.getAuthNote(LoginLink.NOTE_SENT_AT));
     }
 
     void showWaitingPage() {
@@ -384,12 +447,10 @@ final class LoginLinkFlow {
     void clear() {
         AuthenticationSessionModel authSession = context.getAuthenticationSession();
         dropLink(context.getSession().singleUseObjects(), authSession);
-        for (String note : List.of(LoginLink.NOTE_STATE, LoginLink.NOTE_USER, LoginLink.NOTE_IDENTIFIER,
-                LoginLink.NOTE_CODE_HASH, LoginLink.NOTE_EXPIRES_AT, LoginLink.NOTE_ATTEMPTS,
-                LoginLink.NOTE_SENT_AT, LoginLink.NOTE_TOKEN_HASH, LoginLink.NOTE_DENIED,
-                LoginLink.NOTE_REGISTER, LoginLink.NOTE_REGISTER_VERIFIED, LoginLink.NOTE_REGISTER_VERIFIED_TOKEN)) {
+        for (String note : WAITING_NOTES) {
             authSession.removeAuthNote(note);
         }
+        authSession.removeAuthNote(LoginLink.NOTE_DENIED);
     }
 
     private void succeed(UserModel user, String method) {

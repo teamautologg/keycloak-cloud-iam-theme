@@ -44,6 +44,7 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
     public void authenticate(AuthenticationFlowContext context) {
         readSettings(context);
         LoginLinkFlow links = links(context);
+        links.resumeClosedAppLogin();
         if (links.isWaiting()) {
             links.showWaitingPage();
             return;
