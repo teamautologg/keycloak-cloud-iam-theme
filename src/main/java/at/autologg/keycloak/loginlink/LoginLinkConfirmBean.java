@@ -24,6 +24,7 @@ public class LoginLinkConfirmBean {
     private boolean termsMissing;
     private boolean otpOffered;
     private boolean otpChosen;
+    private boolean tapToFinish;
 
     private LoginLinkConfirmBean(String state, String actionUrl, String key, String email, long minutesAgo,
                                  String browser, String operatingSystem, String reason) {
@@ -125,6 +126,16 @@ public class LoginLinkConfirmBean {
 
     LoginLinkConfirmBean withOtpChosen(boolean value) {
         this.otpChosen = value;
+        return this;
+    }
+
+    /** The login finishes with a tap in the app (Android): this page sends the recipient back there. */
+    public boolean isTapToFinish() {
+        return tapToFinish;
+    }
+
+    LoginLinkConfirmBean withTapToFinish(boolean value) {
+        this.tapToFinish = value;
         return this;
     }
 

@@ -62,7 +62,9 @@
                 <span class="al-link-hero-icon al-success" aria-hidden="true">
                     <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
                 </span>
-                <#if loginLinkConfirm.register && loginLinkConfirm.otpChosen>
+                <#if loginLinkConfirm.tapToFinish>
+                    <p class="al-text">${msg("loginLinkConfirmedTapText")}</p>
+                <#elseif loginLinkConfirm.register && loginLinkConfirm.otpChosen>
                     <#-- The app is set up where the login waits (app window, in-app browser), not in this tab. -->
                     <p class="al-text">${msg("loginLinkRegisterConfirmedOtpText")}</p>
                 <#else>

@@ -754,6 +754,17 @@ body.al-body {
     animation: none;
 }
 
+.al-finish {
+    margin-top: 16px;
+}
+
+.al-finish[hidden],
+.al-confirmed .al-status-hint,
+.al-confirmed .al-code,
+.al-confirmed .al-link-help {
+    display: none;
+}
+
 .al-status[data-state="expired"] {
     background: var(--al-warning-surface);
 }

@@ -41,6 +41,7 @@ CHROME = None  # [22] finds Chrome itself unless --chrome says where
 DB_CONTAINER = "al5388-keycloak-db-1"  # docker compose -p al5388
 CLIENT = "account-console"
 DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+ANDROID_UA = "Mozilla/5.0 (Linux; Android 16; Pixel 8a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36"
 PHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"
 USER_WITH_PASSWORD = ("test@autologg.local", "Test1234!")
 USER_WITHOUT_PASSWORD = "ohnepasswort@autologg.local"
@@ -1073,6 +1074,42 @@ def exclusions(realm, identifier_first, organization=False):
         configure_execution(admin_token(), realm, {"excludedDomains": "", "excludedRoles": ""})
 
 
+def android_app(realm, identifier_first, organization=False):
+    print("\n[25] Android app: the waiting page finishes with a tap")
+    scheme = "at.autologg.app.e2e"
+    app = {"client_id": "android-app-e2e", "redirect_uri": f"{scheme}:/oauth2redirect"}
+    admin_call(realm, "POST", "/clients", {"clientId": app["client_id"], "publicClient": True, "standardFlowEnabled": True,
+                                           "redirectUris": [app["redirect_uri"]]})
+    client = admin_call(realm, "GET", f"/clients?clientId={app['client_id']}")[0]
+    try:
+        clear_mails()
+        android = Browser("android", ANDROID_UA)
+        page = send_link(android, realm, USER_WITH_PASSWORD[0], identifier_first or organization, app)
+        check("al-login-link-finish" in android.html, "the page has the button")
+        check("komm dann hierher zur" in android.html, "and tells to come back")
+        check('data-text-confirmed="Bestätigt"' in html.unescape(android.html), "without promising to sign in by itself")
+        status_url = html.unescape(re.search(r'data-status-url="([^"]+)"', android.html).group(1))
+        link, _, _ = latest_mail(USER_WITH_PASSWORD[0])
+        other = Browser("other", ANDROID_UA)
+        confirm = other.open(link)
+        done = other.submit(confirm.forms["kc-login-link-confirm-form"], None, "confirm")
+        check(done.data_state == "done" and "Weiter zur App" in html.unescape(other.html),
+              "the confirm page sends the recipient back to the button")
+        check(android.json(status_url)["state"] == "confirmed", "the waiting page sees the confirmation")
+        android.submit(page.forms["kc-login-link-check-form"])
+        check(android.url.startswith(f"{scheme}:/oauth2redirect") and "code=" in android.url,
+              "the tap ends in the app with an authorization code")
+
+        for name, agent, extra in (("iPhone app", PHONE_UA, app), ("Android browser", ANDROID_UA, None),
+                                   ("desktop", DESKTOP_UA, app)):
+            clear_mails()
+            browser = Browser(name, agent)
+            send_link(browser, realm, USER_WITH_PASSWORD[0], identifier_first or organization, extra)
+            check("al-login-link-finish" not in browser.html, f"{name}: finishes by itself, no button")
+    finally:
+        admin_call(realm, "DELETE", f"/clients/{client['id']}")
+
+
 def registration_cap(realm, identifier_first, organization=False):
     print("\n[17] cap on registration e-mails")
     if identifier_first:
@@ -1756,6 +1793,7 @@ def main():
     registration_binding(realm, args.identifier_first, args.organization)
     registration_two_factor(realm, args.identifier_first, args.organization)
     exclusions(realm, args.identifier_first, args.organization)
+    android_app(realm, args.identifier_first, args.organization)
     registration_cap(realm, args.identifier_first, args.organization)
     two_factor(realm, args.identifier_first, args.organization)
     password_switch(realm, args.identifier_first, args.organization)

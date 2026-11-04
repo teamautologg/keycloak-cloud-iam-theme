@@ -263,6 +263,9 @@ final class LoginLinkFlow {
         if (operatingSystem != null) {
             link.put(LoginLink.LINK_OS, operatingSystem);
         }
+        if (UserAgents.finishesWithTap(userAgent, authSession.getRedirectUri())) {
+            link.put(LoginLink.LINK_TAP_TO_FINISH, "true");
+        }
         store.put(LoginLink.linkKey(tokenHash), ttl, link);
         authSession.setAuthNote(LoginLink.NOTE_USER, user == null ? "" : user.getId());
         if (register != null) {
@@ -640,7 +643,10 @@ final class LoginLinkFlow {
         LoginFormsProvider form = context.form();
         form.setAttribute(LoginLink.ATTR_SENT,
                 new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, back,
-                        note(LoginLink.NOTE_DENIED) != null, mailbox(shown), isDesktop()));
+                        note(LoginLink.NOTE_DENIED) != null, mailbox(shown), isDesktop(),
+                        UserAgents.finishesWithTap(
+                                context.getHttpRequest().getHttpHeaders().getHeaderString("User-Agent"),
+                                authSession.getRedirectUri())));
         if (fieldError != null) {
             form.addError(fieldError);
         } else if (error != null) {
