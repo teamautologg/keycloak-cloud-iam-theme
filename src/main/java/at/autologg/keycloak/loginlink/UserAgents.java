@@ -45,7 +45,12 @@ final class UserAgents {
      * there. iOS is not affected, the system's login sheet picks the redirect up itself; https stays in the browser.
      */
     static boolean finishesWithTap(String userAgent, String redirectUri) {
-        if (redirectUri == null || !redirectUri.contains(":") || !"Android".equals(operatingSystem(userAgent))) {
+        return "Android".equals(operatingSystem(userAgent)) && isAppRedirect(redirectUri);
+    }
+
+    /** The login ends in an app through its own scheme, not in a browser. */
+    static boolean isAppRedirect(String redirectUri) {
+        if (redirectUri == null || !redirectUri.contains(":")) {
             return false;
         }
         String lower = redirectUri.toLowerCase(Locale.ROOT);

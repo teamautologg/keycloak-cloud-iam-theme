@@ -1106,8 +1106,73 @@ def android_app(realm, identifier_first, organization=False):
             browser = Browser(name, agent)
             send_link(browser, realm, USER_WITH_PASSWORD[0], identifier_first or organization, extra)
             check("al-login-link-finish" not in browser.html, f"{name}: finishes by itself, no button")
+
+        if not identifier_first and not organization:
+            closed_login_tab(realm, app, scheme)
     finally:
         admin_call(realm, "DELETE", f"/clients/{client['id']}")
+
+
+def closed_login_tab(realm, app, scheme):
+    print("\n[26] app: a closed login tab, the next one continues")
+    def waiting_again(browser):
+        return "kc-login-link-code-form" in start_login(browser, realm, app).forms
+
+    clear_mails()
+    phone = Browser("phone", ANDROID_UA)
+    send_link(phone, realm, USER_WITH_PASSWORD[0], False, app)
+    link, _, _ = latest_mail(USER_WITH_PASSWORD[0])
+    check(waiting_again(phone), "the next tab shows the waiting page, no new e-mail needed")
+    check(USER_WITH_PASSWORD[0] in phone.html, "with the address")
+    page = phone.page()
+    other = Browser("other", ANDROID_UA)
+    confirm = other.open(link)
+    done = other.submit(confirm.forms["kc-login-link-confirm-form"], None, "confirm")
+    check(done.data_state == "done", "the link of the closed tab still confirms")
+    status_url = html.unescape(re.search(r'data-status-url="([^"]+)"', phone.html).group(1))
+    check(phone.json(status_url)["state"] == "confirmed", "and the new tab sees it")
+    phone.submit(page.forms["kc-login-link-check-form"])
+    check(phone.url.startswith(f"{scheme}:/oauth2redirect") and "code=" in phone.url, "the new tab signs in")
+
+    clear_mails()
+    phone = Browser("phone", ANDROID_UA)
+    send_link(phone, realm, USER_WITH_PASSWORD[0], False, app)
+    link, _, _ = latest_mail(USER_WITH_PASSWORD[0])
+    other = Browser("other", ANDROID_UA)
+    other.submit(other.open(link).forms["kc-login-link-confirm-form"], None, "confirm")
+    check(waiting_again(phone), "confirmed first, tab closed: the next tab still has the login")
+    status_url = html.unescape(re.search(r'data-status-url="([^"]+)"', phone.html).group(1))
+    check(phone.json(status_url)["state"] == "confirmed", "already confirmed")
+    phone.submit(phone.page().forms["kc-login-link-check-form"])
+    check(phone.url.startswith(f"{scheme}:/oauth2redirect") and "code=" in phone.url, "and signs in")
+    check(start_login(phone, realm, app) is not None and phone.url.startswith(f"{scheme}:/oauth2redirect"),
+          "signed in, a further login needs no e-mail")
+
+    clear_mails()
+    phone = Browser("phone", PHONE_UA)
+    send_link(phone, realm, USER_WITH_PASSWORD[0], False, app)
+    _, code, _ = latest_mail(USER_WITH_PASSWORD[0])
+    check(waiting_again(phone), "iPhone: the next tab shows the waiting page too")
+    phone.submit(phone.page().forms["kc-login-link-code-form"], {"loginLinkCode": code})
+    check(phone.url.startswith(f"{scheme}:/oauth2redirect") and "code=" in phone.url, "the e-mail's code works in the new tab")
+
+    clear_mails()
+    phone = Browser("phone", ANDROID_UA)
+    send_link(phone, realm, USER_WITH_PASSWORD[0], False, app)
+    waiting_again(phone)
+    phone.submit(phone.page().forms["kc-login-link-cancel-form"])
+    check(not waiting_again(phone), "\"other address\" ends it: the next tab asks for the address")
+
+    clear_mails()
+    desk = Browser("desk", DESKTOP_UA)
+    send_link(desk, realm, USER_WITH_PASSWORD[0])
+    check("kc-login-link-code-form" not in start_login(desk, realm).forms,
+          "in a browser the next login starts over (a shared computer must not show the address)")
+
+    clear_mails()
+    phone = Browser("phone", ANDROID_UA)
+    send_link(phone, realm, USER_WITH_PASSWORD[0], False, app)
+    check(not waiting_again(Browser("stranger", ANDROID_UA)), "another browser finds nothing")
 
 
 def registration_cap(realm, identifier_first, organization=False):

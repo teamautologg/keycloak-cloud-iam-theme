@@ -29,6 +29,14 @@ class UserAgentsTest {
     }
 
     @Test
+    void anOwnSchemeIsAnApp() {
+        assertTrue(UserAgents.isAppRedirect("at.autologg.app:/oauth2redirect"));
+        assertFalse(UserAgents.isAppRedirect("https://logbook.autologg.com/auth.html"));
+        assertFalse(UserAgents.isAppRedirect(null));
+        assertFalse(UserAgents.isAppRedirect("/relative"));
+    }
+
+    @Test
     void recognisesCommonBrowsers() {
         assertEquals("Chrome", UserAgents.browser(CHROME_WINDOWS));
         assertEquals("Edge", UserAgents.browser(EDGE_WINDOWS));
