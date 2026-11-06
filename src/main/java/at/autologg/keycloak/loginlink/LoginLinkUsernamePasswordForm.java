@@ -1,5 +1,7 @@
 package at.autologg.keycloak.loginlink;
 
+import java.util.List;
+
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -15,6 +17,7 @@ import org.keycloak.models.UserModel;
 import org.keycloak.models.credential.PasswordCredentialModel;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.services.managers.AuthenticationManager;
+import org.keycloak.services.messages.Messages;
 import org.keycloak.services.validation.Validation;
 
 /**
@@ -27,10 +30,17 @@ import org.keycloak.services.validation.Validation;
  * offers the link or the password for it. Both pages are this one execution; the
  * address in between is an auth note, and the second page posts it back as the
  * username, so the password check is Keycloak's own.
+ *
+ * <p>Password option: password login is off, but a text link opens the password
+ * field on the same page. The page, the error and the time it takes do not depend
+ * on the address, so nothing tells who has an account or a password.
  */
 public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
 
     private boolean passwordLogin = true;
+    private boolean passwordOption;
+    /** Password option: this answer shows the password field. */
+    private boolean passwordOpen;
     private boolean emailFirst = true;
     /** E-mail first applies to this request; decided before Keycloak sets the user. */
     private boolean twoPages;
@@ -57,6 +67,7 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
         readSettings(context);
         MultivaluedMap<String, String> form = context.getHttpRequest().getDecodedFormParameters();
         LoginLinkFlow links = links(context);
+        passwordOpen = passwordOption && form.containsKey(Validation.FIELD_PASSWORD);
         if (form.containsKey(LoginLink.FORM_SEND)) {
             sendLink(context, links, form);
             return;
@@ -64,7 +75,11 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
         if (links.handleWaitingAction(form, () -> super.authenticate(context))) {
             return;
         }
-        if (!passwordLogin && !form.containsKey("cancel") && !LoginLinkFlow.isPasskeySubmission(form)) {
+        if (passwordOption && form.containsKey(LoginLink.FORM_SHOW_PASSWORD)) {
+            showPassword(context, form);
+            return;
+        }
+        if (!passwordLogin && !passwordOpen && !form.containsKey("cancel") && !LoginLinkFlow.isPasskeySubmission(form)) {
             // Password login is off: whatever was posted, this form only sends the link.
             sendLink(context, links, form);
             return;
@@ -82,7 +97,40 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
         if (links.isWaiting()) {
             links.clear();
         }
+        if (passwordOpen) {
+            hashForAccountWithoutPassword(context, form);
+        }
         super.action(context);
+    }
+
+    /** The text link: the same page with the password field open, the address and the box kept. */
+    private void showPassword(AuthenticationFlowContext context, MultivaluedMap<String, String> form) {
+        passwordOpen = true;
+        MultivaluedMap<String, String> formData = new MultivaluedHashMap<>();
+        for (String field : List.of(AuthenticationManager.FORM_USERNAME, "rememberMe")) {
+            String value = form.getFirst(field);
+            if (value != null) {
+                formData.putSingle(field, value);
+            }
+        }
+        context.forceChallenge(challenge(context, formData));
+    }
+
+    /**
+     * Keycloak hashes for a wrong password and for an unknown address, but answers an account without a
+     * password at once. Without this hash the answer's speed would tell that such an account exists.
+     */
+    private void hashForAccountWithoutPassword(AuthenticationFlowContext context, MultivaluedMap<String, String> form) {
+        String username = form.getFirst(AuthenticationManager.FORM_USERNAME);
+        if (username != null && !username.isBlank() && !passwordAvailableFor(username.trim())) {
+            AuthenticatorUtils.dummyHash(context);
+        }
+    }
+
+    /** A locked account gets the usual error: the lock would tell that the account exists. The link still works. */
+    @Override
+    protected String disabledByBruteForceError(String error) {
+        return passwordOption ? Messages.INVALID_USER : super.disabledByBruteForceError(error);
     }
 
     /** First page posted: remember the address and show the choice. Unknown addresses get the same page. */
@@ -134,6 +182,7 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
         this.context = context;
         LoginLinkConfig config = LoginLinkConfig.from(context.getAuthenticatorConfig());
         passwordLogin = config.passwordLogin;
+        passwordOption = config.passwordOption;
         emailFirst = config.emailFirst;
         twoPages = emailFirstActive(context);
     }
@@ -163,6 +212,11 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
     }
 
     private void offer(LoginFormsProvider form) {
+        if (passwordOption) {
+            form.setAttribute(LoginLink.ATTR_LOGIN_FORM,
+                    new LoginLinkFormBean(passwordOpen, false, LoginLinkFormBean.STEP_SINGLE, null, true));
+            return;
+        }
         if (context == null || !twoPages) {
             LoginLinkFlow.offer(form, passwordLogin, passwordLogin);
             return;

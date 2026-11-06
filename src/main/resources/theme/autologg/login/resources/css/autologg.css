@@ -496,6 +496,37 @@ body.al-body {
     flex: none;
 }
 
+/* The way in that is not the main one: "Mit Passwort anmelden", "Stattdessen Anmeldelink senden". */
+.al-text-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--al-radius-control);
+    background: none;
+    color: var(--al-accent-text);
+    font: 600 14px/1.3 var(--al-font);
+    cursor: pointer;
+}
+
+.al-text-link:hover {
+    text-decoration: underline;
+}
+
+.al-text-link .al-link-button-icon {
+    width: 18px;
+    height: 18px;
+}
+
+/* The password field has its eye there; the message below says what is wrong. */
+.al-card .pf-v5-c-input-group .pf-v5-c-form-control__icon.pf-m-status {
+    display: none;
+}
+
 .al-card .pf-v5-c-button.pf-m-link.al-inline-button {
     padding: 4px 0;
     font-size: 14px;

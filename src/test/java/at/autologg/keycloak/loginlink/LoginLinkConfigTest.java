@@ -47,6 +47,14 @@ class LoginLinkConfigTest {
     }
 
     @Test
+    void thePasswordOptionNeedsPasswordLoginOff() {
+        assertFalse(LoginLinkConfig.defaults().passwordOption);
+        assertTrue(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_OPTION, "true"))).passwordOption);
+        assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_OPTION, "true",
+                LoginLinkConfig.PASSWORD_LOGIN, "true"))).passwordOption);
+    }
+
+    @Test
     void passwordLoginIsOffUnlessSwitchedOn() {
         assertTrue(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_LOGIN, "true"))).passwordLogin);
         assertFalse(LoginLinkConfig.from(model(Map.of(LoginLinkConfig.PASSWORD_LOGIN, "false"))).passwordLogin);
@@ -90,7 +98,7 @@ class LoginLinkConfigTest {
 
     @Test
     void exposesAllPropertiesInTheAdminConsole() {
-        assertEquals(14, LoginLinkConfig.properties().size());
+        assertEquals(15, LoginLinkConfig.properties().size());
     }
 
     private static AuthenticatorConfigModel model(Map<String, String> values) {

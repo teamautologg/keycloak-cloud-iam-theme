@@ -14,12 +14,18 @@ public class LoginLinkFormBean {
     private final boolean passwordLogin;
     private final String step;
     private final String address;
+    private final boolean passwordOption;
 
     LoginLinkFormBean(boolean passwordAvailable, boolean passwordLogin) {
         this(passwordAvailable, passwordLogin, STEP_SINGLE, null);
     }
 
     LoginLinkFormBean(boolean passwordAvailable, boolean passwordLogin, String step, String address) {
+        this(passwordAvailable, passwordLogin, step, address, false);
+    }
+
+    LoginLinkFormBean(boolean passwordAvailable, boolean passwordLogin, String step, String address, boolean passwordOption) {
+        this.passwordOption = passwordOption;
         this.passwordAvailable = passwordAvailable;
         this.passwordLogin = passwordLogin;
         this.step = step;
@@ -36,6 +42,11 @@ public class LoginLinkFormBean {
         return passwordLogin;
     }
 
+    /** The link is the way in; a text link opens the password field, {@link #isPasswordAvailable()} tells whether it is open. */
+    public boolean isPasswordOption() {
+        return passwordOption;
+    }
+
     /** One of {@link #STEP_SINGLE}, {@link #STEP_EMAIL}, {@link #STEP_CHOICE}. */
     public String getStep() {
         return step;
@@ -48,6 +59,10 @@ public class LoginLinkFormBean {
 
     public String getSendParameter() {
         return LoginLink.FORM_SEND;
+    }
+
+    public String getShowPasswordParameter() {
+        return LoginLink.FORM_SHOW_PASSWORD;
     }
 
     public String getNextParameter() {

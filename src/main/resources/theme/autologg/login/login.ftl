@@ -9,6 +9,10 @@
      single page asks for the address only. -->
 <#assign step = (loginLink??)?then(loginLink.step, "single")>
 <#assign passwordShown = !(loginLink??) || loginLink.passwordAvailable>
+<#-- The link is the way in, a text link opens the password field on the same page. -->
+<#assign passwordOption = (loginLink??) && loginLink.passwordOption>
+<#assign passwordOpen = passwordOption && passwordShown>
+<#assign focusPassword = passwordOpen && (login.username!'')?has_content>
 <#assign mailIcon><svg class="al-link-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16v12H4zM4 7l8 6 8-6"/></svg></#assign>
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled?? && !(loginLink??); section>
 <!-- template: login.ftl -->
@@ -104,10 +108,11 @@
                         <#assign label>
                             <#if !realm.loginWithEmailAllowed>${msg("username")}<#elseif !realm.registrationEmailAsUsername>${msg("usernameOrEmail")}<#else>${msg("email")}</#if>
                         </#assign>
-                        <@field.input name="username" label=label error=messagesPerField.getFirstError('username','password')
-                            autofocus=true autocomplete="${(enableWebAuthnConditionalUI?has_content)?then('username webauthn', 'username')}" value=login.username!'' />
+                        <#-- An open password field shows every error, so its place does not tell whether the address is known. -->
+                        <@field.input name="username" label=label error=passwordOpen?then("", messagesPerField.getFirstError('username','password'))
+                            autofocus=!focusPassword autocomplete="${(enableWebAuthnConditionalUI?has_content)?then('username webauthn', 'username')}" value=login.username!'' />
                         <#if passwordShown>
-                            <@field.password name="password" label=msg("password") error="" forgotPassword=realm.resetPasswordAllowed autofocus=usernameHidden?? autocomplete="current-password">
+                            <@field.password name="password" label=msg("password") error=passwordOpen?then(messagesPerField.getFirstError('username','password'), "") forgotPassword=realm.resetPasswordAllowed autofocus=(usernameHidden?? || focusPassword) autocomplete="current-password">
                                 <#if realm.rememberMe && !usernameHidden??>
                                     <@field.checkbox name="rememberMe" label=msg("rememberMe") value=login.rememberMe?? />
                                 </#if>
@@ -128,15 +133,29 @@
                         <#if passwordShown>
                             <@buttons.button id="kc-login" name="login" label="doLogIn" />
                         </#if>
-                        <#if loginLink??>
+                        <#if passwordOpen>
+                            <button class="al-text-link" type="submit" id="kc-login-link" name="${loginLink.sendParameter}" value="1" formnovalidate>
+                                ${mailIcon}
+                                ${msg("loginLinkInstead")}
+                            </button>
+                        <#elseif loginLink??>
                             <button class="${passwordShown?then(properties.kcButtonSecondaryClass!, properties.kcButtonPrimaryClass!)} ${properties.kcButtonBlockClass!} al-link-button" type="submit"
                                     id="kc-login-link" name="${loginLink.sendParameter}" value="1" formnovalidate>
                                 ${mailIcon}
                                 ${msg("loginLinkSend")}
                             </button>
+                            <#if passwordOption>
+                                <button class="al-text-link" type="submit" id="kc-login-show-password" name="${loginLink.showPasswordParameter}" value="1" formnovalidate>
+                                    ${msg("loginLinkPasswordLogin")}
+                                </button>
+                            </#if>
                         </#if>
                     </@buttons.actionGroup>
-                    <#if loginLink?? && !passwordShown>
+                    <#if passwordOption>
+                        <#if !passwordOpen && realm.registrationAllowed && !usernameHidden??>
+                            <p class="al-help">${msg("loginLinkOnlyRegisterHelp")}</p>
+                        </#if>
+                    <#elseif loginLink?? && !passwordShown>
                         <p class="al-help">${msg("loginLinkOnlyHelp")}<#if realm.registrationAllowed && !usernameHidden??><br>${msg("loginLinkOnlyRegisterHelp")}</#if></p>
                     </#if>
                 </form>
@@ -146,7 +165,7 @@
         <@passkeys.conditionalUIData />
     <#elseif section = "socialProviders" >
         <#if realm.password && social.providers?? && social.providers?has_content && step != "choice">
-            <#if step == "email" || (loginLink?? && !passwordShown)>
+            <#if step == "email" || passwordOption || (loginLink?? && !passwordShown)>
                 <@identityProviders.show social=social label=msg("loginLinkSocialLabel") columns=2/>
             <#else>
                 <@identityProviders.show social=social/>

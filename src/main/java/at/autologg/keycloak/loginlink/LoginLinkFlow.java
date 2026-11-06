@@ -455,7 +455,9 @@ final class LoginLinkFlow {
 
     private void succeed(UserModel user, String method) {
         // Disabled meanwhile or locked by brute force protection: renders the login page with the reason.
-        if (!authenticator.enabledUser(context, user)) {
+        // With the password option a lock says nothing about the e-mail, see refusal().
+        boolean lockDoesNotCount = config.passwordOption && user.isEnabled();
+        if (!lockDoesNotCount && !authenticator.enabledUser(context, user)) {
             clear();
             return;
         }
@@ -768,7 +770,9 @@ final class LoginLinkFlow {
         if (user.getEmail() == null || user.getEmail().isBlank()) {
             return "user without e-mail";
         }
-        if (AuthenticatorUtils.getDisabledByBruteForceEventError(context, user) != null) {
+        // With the password option anybody can lock an account by guessing passwords: that must not keep
+        // its owner out of the e-mail. A wrong authenticator code is still locked out in the OTP step.
+        if (!config.passwordOption && AuthenticatorUtils.getDisabledByBruteForceEventError(context, user) != null) {
             return "locked by brute force protection";
         }
         for (String roleName : config.excludedRoles) {

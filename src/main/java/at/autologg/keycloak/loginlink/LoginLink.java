@@ -69,6 +69,7 @@ final class LoginLink {
     static final String FORM_RESEND = "loginLinkResend";
     static final String FORM_CANCEL = "loginLinkCancel";
     static final String FORM_NEXT = "loginLinkNext";
+    static final String FORM_SHOW_PASSWORD = "loginLinkShowPassword";
     static final String FORM_CHANGE_ADDRESS = "loginLinkChangeAddress";
     static final String FORM_TERMS = "loginLinkTerms";
 

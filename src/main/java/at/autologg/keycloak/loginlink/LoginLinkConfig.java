@@ -28,6 +28,7 @@ final class LoginLinkConfig {
     static final String EXCLUDED_IDENTITY_PROVIDERS = "excludedIdentityProviders";
     static final String MARK_EMAIL_VERIFIED = "markEmailVerified";
     static final String PASSWORD_LOGIN = "passwordLogin";
+    static final String PASSWORD_OPTION = "passwordOption";
     static final String EMAIL_FIRST = "emailFirst";
     static final String EXCLUDED_ROLES = "excludedRoles";
     static final String EXCLUDED_DOMAINS = "excludedDomains";
@@ -53,6 +54,8 @@ final class LoginLinkConfig {
     final boolean markEmailVerified;
     /** False (default): the form asks for the address only and never checks a password. */
     final boolean passwordLogin;
+    /** Username Password Form, password login off: the link stays the way in, a text link opens the password field. */
+    final boolean passwordOption;
     /** Username Password Form: first page asks for the address, the second offers link or password. */
     final boolean emailFirst;
     /** Users with one of these realm roles get no link (e.g. microsoft-login-only). */
@@ -73,6 +76,7 @@ final class LoginLinkConfig {
         excludedIdentityProviders = names(values.get(EXCLUDED_IDENTITY_PROVIDERS), true);
         markEmailVerified = flag(values, MARK_EMAIL_VERIFIED);
         passwordLogin = flag(values, PASSWORD_LOGIN, false);
+        passwordOption = !passwordLogin && flag(values, PASSWORD_OPTION, false);
         emailFirst = flag(values, EMAIL_FIRST);
         excludedRoles = names(values.get(EXCLUDED_ROLES), false);
         excludedDomains = names(values.get(EXCLUDED_DOMAINS), true);
@@ -159,6 +163,13 @@ final class LoginLinkConfig {
                 .name(PASSWORD_LOGIN)
                 .label("Password login")
                 .helpText("Off (default): the page asks for the e-mail address only and sends the sign-in link; this form accepts no password (passkeys still work). On: the password is offered next to the link. Password grants of the API are a separate flow.")
+                .type(ProviderConfigProperty.BOOLEAN_TYPE)
+                .defaultValue("false")
+                .add()
+                .property()
+                .name(PASSWORD_OPTION)
+                .label("Password behind a text link")
+                .helpText("Username Password Form only, with Password login off: the page offers the sign-in link as before, and the text link \"Sign in with password\" opens the password field on the same page. It looks the same for every address. Off (default): no password.")
                 .type(ProviderConfigProperty.BOOLEAN_TYPE)
                 .defaultValue("false")
                 .add()

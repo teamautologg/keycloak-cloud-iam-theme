@@ -25,6 +25,7 @@ Examples
       --admin-user thomas.jetzinger --otp --apply
   python scripts/setup_login_link_flow.py ... --config excludedIdentityProviders=entra-acme --apply
   python scripts/setup_login_link_flow.py ... --password on --apply    # password next to the link again
+  python scripts/setup_login_link_flow.py ... --password option --apply    # link first, password behind a text link
   python scripts/setup_login_link_flow.py ... --config excludedDomains=pharmatechnik.de --apply
 
 On a realm that already uses the login-link forms, --config changes the execution config.
@@ -42,6 +43,12 @@ with an authenticator app as well; ticked, the new account sets up the app right
 (required action Configure OTP). Needs the OTP step on (in the same run: --otp-step on) and Configure OTP on
 in the realm, else the script stops; while the box is offered, --otp-step off stops too.
   python scripts/setup_login_link_flow.py ... --config registrationOtpOffer=true --apply
+--password option: the page stays as with off and gets the text link "Mit Passwort anmelden", which opens the
+password field on the same page (Username Password Form only). "Forgot password" is on, so accounts without a
+password can set one. The script prints the realm's brute force detection: passwords can be guessed, links cannot.
+--brute-force on|off (alone, nothing else in that run): the realm's brute force detection. on: after 5 wrong passwords
+or authenticator codes the account is locked for a minute, every further 5 add a minute up to 15, never for good;
+the count starts over after 12 hours. It counts for the whole realm, API logins (direct grant) too.
 --passkeys on: sign-in with a passkey on the login page (Keycloak's passkey autofill in the address field
 and "Mit Passkey anmelden" next to the link), setting one up from the app (required action "Webauthn
 Register Passwordless", kc_action=webauthn-register-passwordless) and the passwordless policy passkeys
@@ -74,7 +81,12 @@ THEME = "autologg"
 CONFIG_KEYS = {
     "linkTtlMinutes", "codeLength", "maxCodeAttempts", "resendCooldownSeconds",
     "maxSendsPerHour", "maxSendsPerIpPerHour", "maxRegistrationsPerHour", "excludedIdentityProviders", "markEmailVerified",
-    "passwordLogin", "emailFirst", "excludedRoles", "excludedDomains", "registrationOtpOffer",
+    "passwordLogin", "passwordOption", "emailFirst", "excludedRoles", "excludedDomains", "registrationOtpOffer",
+}
+# --brute-force on: temporary locks only, so a stranger guessing passwords cannot lock anybody out for good.
+BRUTE_FORCE_ON = {
+    "bruteForceProtected": True, "permanentLockout": False, "failureFactor": 5, "waitIncrementSeconds": 60,
+    "maxFailureWaitSeconds": 900, "maxDeltaTimeSeconds": 43200,
 }
 # Keycloak's required action that sets up an authenticator app (registrationOtpOffer, the app's 2FA page).
 OTP_ACTION = "CONFIGURE_TOTP"
@@ -265,9 +277,14 @@ def setup(api, args):
     print_flow(executions)
     config = parse_config(args.config)
     if args.password:
-        wanted = "true" if args.password == "on" else "false"
-        if config.setdefault("passwordLogin", wanted) != wanted:
-            raise SystemExit(f"--password {args.password} contradicts --config passwordLogin={config['passwordLogin']}")
+        for key, wanted in (("passwordLogin", "true" if args.password == "on" else "false"),
+                            ("passwordOption", "true" if args.password == "option" else "false")):
+            if config.setdefault(key, wanted) != wanted:
+                raise SystemExit(f"--password {args.password} contradicts --config {key}={config[key]}")
+    if args.password == "option":
+        if any(e.get("providerId") in ("auth-password-form", "autologg-password-link") for e in executions):
+            raise SystemExit("--password option works with the Username Password Form only; this flow has the Password Form")
+        print("\nBrute force detection (realm): " + ("on" if realm.get("bruteForceProtected") else "OFF: passwords can be guessed"))
     # Added to the roles a form excludes already, never instead of them.
     auto_role = None
     if "excludedRoles" not in config and api.get_or_none(f"/roles/{quote(MICROSOFT_ONLY_ROLE)}") is not None:
@@ -440,11 +457,35 @@ def print_reset_flow(reset_alias, executions):
     print(f"Password reset by e-mail ({reset_alias!r}) removes the authenticator: {'yes' if removes else 'no'} ({state})")
 
 
+def brute_force(api, args):
+    """--brute-force: the realm's brute force detection, nothing else."""
+    realm = api.get("")
+    print(f"Realm {args.realm}: brute force detection {'on' if realm.get('bruteForceProtected') else 'off'}")
+    wanted = BRUTE_FORCE_ON if args.brute_force == "on" else {"bruteForceProtected": False}
+    plan = {key: value for key, value in wanted.items() if realm.get(key) != value}
+    if not plan:
+        print("Nothing to do.")
+        return
+    print("\nPlan:")
+    for key, value in plan.items():
+        print(f"  - {key}: {realm.get(key)} -> {value}")
+    if not args.apply:
+        print("\nDry run - nothing changed. Run again with --apply.")
+        return
+    if not args.yes:
+        answer = input(f"\nApply this plan to realm {args.realm}? [y/N] ").strip().lower()
+        if answer not in ("y", "yes", "j", "ja"):
+            print("Nothing changed.")
+            return
+    api.call("PUT", "", plan)
+    print("  brute force detection updated")
+
+
 def forgot_password_plan(args, realm):
     """--password: the value the realm's "Forgot password" (resetPasswordAllowed) gets, None when it stays."""
     if not args.password:
         return None
-    wanted = args.password == "on"
+    wanted = args.password != "off"
     return None if bool(realm.get("resetPasswordAllowed")) == wanted else wanted
 
 
@@ -727,9 +768,12 @@ def main():
     p.add_argument("--otp-step", choices=("on", "off"),
                    help="on: accounts with an authenticator app (2FA) enter its code after the link, "
                         "and a password reset by e-mail no longer removes the app; off: no code")
-    p.add_argument("--password", choices=("on", "off"),
+    p.add_argument("--password", choices=("on", "off", "option"),
                    help="on: password next to the link and \"Forgot password\" in the realm; off: link only, "
-                        "no password reset page either (with --bind-flow: \"Forgot password\" only)")
+                        "no password reset page either (with --bind-flow: \"Forgot password\" only); "
+                        "option: link first, password behind a text link, \"Forgot password\" on")
+    p.add_argument("--brute-force", choices=("on", "off"),
+                   help="the realm's brute force detection, alone in its run; on: temporary locks after 5 failures")
     p.add_argument("--passkeys", choices=("on", "off"),
                    help="on: sign-in with a passkey, setting one up from the app, the passwordless policy for passkeys "
                         "and no OTP code after a passkey; off: no passkey sign-in, no new passkeys "
@@ -744,12 +788,16 @@ def main():
     args.server = args.server.rstrip("/")
     if not (args.admin_user or args.admin_client or os.environ.get("KC_ADMIN_TOKEN")):
         p.error("pass --admin-user, --admin-client or KC_ADMIN_TOKEN")
+    if args.brute_force and (args.password or args.passkeys or args.config or args.bind_flow or args.otp_step):
+        p.error("--brute-force goes alone in its run")
     if args.passkey_rp_id and args.passkeys != "on":
         p.error("--passkey-rp-id goes with --passkeys on")
 
     api = Api(args.server, args.realm, Auth(args))
     try:
-        if args.bind_flow:
+        if args.brute_force:
+            brute_force(api, args)
+        elif args.bind_flow:
             bind(api, args.realm, args.bind_flow, args.apply)
             # Rolled back to Keycloak's password forms: accounts registered through the link need the reset.
             realm = api.get("")
