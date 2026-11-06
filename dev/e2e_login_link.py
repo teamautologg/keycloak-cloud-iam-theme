@@ -1419,6 +1419,167 @@ def password_switch(realm, identifier_first, organization=False):
         configure_execution(admin_token(), realm, {"passwordLogin": "true"})
 
 
+def password_option(realm, identifier_first, organization=False):
+    print("\n[27] setup script --password option: link first, password behind a text link")
+    if identifier_first and not organization:
+        out = run_setup_script(realm, "--password", "option")
+        check(out.returncode != 0 and "Username Password Form only" in out.stderr, "the Password Form cannot do it, the script says so")
+        return
+    before = admin_call(realm, "GET", "")
+
+    def opened(browser, address=None):
+        """The login page with the password field open; `address` empty when a step before took it."""
+        page = start_login(browser, realm)
+        if organization:
+            page = browser.submit(page.forms["kc-form-login"], {"username": address}, "login")
+            return browser.submit(page.forms["kc-form-login"], None, "loginLinkShowPassword")
+        return browser.submit(page.forms["kc-form-login"], {"username": address}, "loginLinkShowPassword")
+
+    def shape(page, browser):
+        """What a page shows, without the session's own values: forms, fields, buttons and the error."""
+        form = page.forms["kc-form-login"]
+        errors = re.findall(r'id="input-error[^"]*"[^>]*>\s*([^<]+?)\s*<', browser.html)
+        return sorted(form["fields"]), sorted(form["buttons"]), errors
+
+    try:
+        out = run_setup_script(realm, "--password", "option", "--apply", "--yes")
+        settings = admin_call(realm, "GET", "")
+        check(out.returncode == 0 and settings["resetPasswordAllowed"] is True, "\"Forgot password\" on")
+        check("Brute force detection (realm)" in out.stdout, "the script shows the brute force detection")
+        if out.returncode != 0:
+            print(out.stdout[-800:], out.stderr[-800:])
+        configure_execution(admin_token(), realm, {"passwordLogin": "false", "passwordOption": "true"})
+
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = start_login(desk, realm)
+        if organization:
+            page = desk.submit(page.forms["kc-form-login"], {"username": USER_WITH_PASSWORD[0]}, "login")
+        form = page.forms["kc-form-login"]
+        check("password" not in form["fields"] and "login" not in form["buttons"], "the first page has no password field")
+        check("loginLink" in form["buttons"] and "loginLinkShowPassword" in form["buttons"], "link button and text link")
+        check(list(form["buttons"])[0] == "loginLink", "Enter sends the link")
+        check("Mit Passwort anmelden" in desk.html, "the text link says so")
+        check("ganz ohne Passwort" not in desk.html, "no \"without a password\" next to it")
+
+        desk = Browser("desk", DESKTOP_UA)
+        page = opened(desk, USER_WITH_PASSWORD[0])
+        form = page.forms["kc-form-login"]
+        check("password" in form["fields"] and "login" in form["buttons"], "the text link opens the password field")
+        if not organization:
+            check(form["fields"].get("username") == USER_WITH_PASSWORD[0], "the address stays")
+        check(list(form["buttons"])[0] == "login", "Enter now signs in with the password")
+        check("loginLink" in form["buttons"] and "loginLinkShowPassword" not in form["buttons"], "the link is still offered")
+        check("login-actions/reset-credentials" in desk.html, "\"Forgot password\" is there")
+        check("kc-login-link-code-form" not in page.forms and not mails_to(USER_WITH_PASSWORD[0]), "opening it sends no e-mail")
+
+        page = desk.submit(form, {"password": "falsch"}, "login")
+        check(desk.code_from_redirects() is None, "a wrong password does not log in")
+        check("password" in page.forms["kc-form-login"]["fields"], "and the field stays open")
+        check("E-Mail oder Passwort stimmt nicht" in desk.html, "with the usual error")
+        if not organization:
+            check(page.forms["kc-form-login"]["fields"].get("username") == USER_WITH_PASSWORD[0], "the address stays after the error")
+            known = shape(page, desk)
+            time.sleep(1.5)
+            for label, address in (("an unknown address", "niemand@autologg.local"), ("an account without a password", USER_WITHOUT_PASSWORD)):
+                other = Browser("other", DESKTOP_UA)
+                page = opened(other, address)
+                page = other.submit(page.forms["kc-form-login"], {"password": "falsch"}, "login")
+                check(shape(page, other) == known, f"{label} looks the same")
+                time.sleep(1.5)
+
+        time.sleep(1.5)
+        desk = Browser("desk", DESKTOP_UA)
+        page = opened(desk, USER_WITH_PASSWORD[0])
+        desk.submit(page.forms["kc-form-login"], {"password": USER_WITH_PASSWORD[1]}, "login")
+        check(desk.code_from_redirects() is not None, "the right password logs in")
+
+        pause_for_cooldown()
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = opened(desk, USER_WITH_PASSWORD[0])
+        page = desk.submit(page.forms["kc-form-login"], {"password": ""}, "loginLink")
+        check("kc-login-link-code-form" in page.forms and desk.code_from_redirects() is None, "\"instead\" sends the link")
+        _, code, _ = latest_mail(USER_WITH_PASSWORD[0])
+        desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check(desk.code_from_redirects() is not None, "and the e-mail's code logs in")
+
+        if organization:
+            return
+
+        pause_for_cooldown()
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = start_login(desk, realm)
+        page = desk.submit(page.forms["kc-form-login"], {"username": USER_WITH_PASSWORD[0]})
+        check("kc-login-link-code-form" in page.forms and mails_to(USER_WITH_PASSWORD[0]), "a post without the password field sends the link")
+        page = desk.submit(page.forms["kc-login-link-cancel-form"])
+        check("password" not in page.forms["kc-form-login"]["fields"] and "loginLinkShowPassword" in page.forms["kc-form-login"]["buttons"],
+              "\"other address\" comes back to the first page")
+
+        print("     an account without a password sets one through the e-mail")
+        address = f"neu-passwort-{secrets.token_hex(3)}@autologg.local"
+        admin_call(realm, "POST", "/users", {"username": address, "email": address, "enabled": True, "emailVerified": True,
+                                             "firstName": "Neu", "lastName": "PASSWORT"})
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        opened(desk, address)
+        reset = re.search(r'href="([^"]*login-actions/reset-credentials[^"]*)"', desk.html)
+        check("Passwort vergessen oder noch keines?" in desk.html, "the link says it is for no password too")
+        page = desk.open(urllib.parse.urljoin(desk.url, html.unescape(reset.group(1))))
+        check("Passwort festlegen" in desk.html, "the page is about setting one")
+        desk.submit(next(iter(page.forms.values())), {"username": address})
+        mail = None
+        for _ in range(20):
+            found = mails_to(address)
+            if found:
+                mail = found[0]
+                break
+            time.sleep(0.5)
+        check(mail is not None and mail.get("Subject") == "Passwort festlegen", "the e-mail arrives")
+        message = json.loads(urllib.request.urlopen(f"{MAILPIT}/api/v1/message/{mail['ID']}", timeout=30).read())
+        check("dein AutoLogg-Konto" in message["Text"], "and says du")
+        action = re.search(r"http\S*login-actions/action-token\S*", message["Text"]).group(0)
+        phone = Browser("phone", PHONE_UA)
+        page = phone.open(html.unescape(action))
+        if "password-new" not in next(iter(page.forms.values()))["fields"]:
+            page = phone.open(urllib.parse.urljoin(phone.url, html.unescape(re.search(r'href="([^"]*)"[^>]*>[^<]*(?:hier|Weiter|here)', phone.html).group(1))))
+        new_password = "Neu-" + secrets.token_urlsafe(12)
+        phone.submit(next(iter(page.forms.values())), {"password-new": new_password, "password-confirm": new_password})
+        desk = Browser("desk", DESKTOP_UA)
+        page = opened(desk, address)
+        desk.submit(page.forms["kc-form-login"], {"password": new_password}, "login")
+        check(desk.code_from_redirects() is not None, "the new password logs in")
+
+        print("     a locked account")
+        admin_call(realm, "PUT", "", {"bruteForceProtected": True, "failureFactor": 2, "waitIncrementSeconds": 300,
+                                      "maxFailureWaitSeconds": 300, "quickLoginCheckMilliSeconds": 1, "minimumQuickLoginWaitSeconds": 1})
+        for _ in range(3):
+            desk = Browser("desk", DESKTOP_UA)
+            page = opened(desk, address)
+            desk.submit(page.forms["kc-form-login"], {"password": "falsch"}, "login")
+            time.sleep(1.2)
+        desk = Browser("desk", DESKTOP_UA)
+        page = opened(desk, address)
+        page = desk.submit(page.forms["kc-form-login"], {"password": new_password}, "login")
+        check(desk.code_from_redirects() is None, "locked: the right password does not log in")
+        check("E-Mail oder Passwort stimmt nicht" in desk.html and "gesperrt" not in desk.html.lower(), "and the page does not say it is locked")
+        clear_mails()
+        pause_for_cooldown()
+        desk = Browser("desk", DESKTOP_UA)
+        page = start_login(desk, realm)
+        page = desk.submit(page.forms["kc-form-login"], {"username": address}, "loginLink")
+        _, code, _ = latest_mail(address)
+        desk.submit(page.forms["kc-login-link-code-form"], {"loginLinkCode": code})
+        check(desk.code_from_redirects() is not None, "the link still logs in")
+        admin_call(realm, "DELETE", f"/attack-detection/brute-force/users/{find_users(realm, address)[0]['id']}")
+    finally:
+        restore = {k: before.get(k) for k in ("resetPasswordAllowed", "bruteForceProtected", "failureFactor", "waitIncrementSeconds",
+                                              "maxFailureWaitSeconds", "quickLoginCheckMilliSeconds", "minimumQuickLoginWaitSeconds")}
+        admin_call(realm, "PUT", "", restore)
+        configure_execution(admin_token(), realm, {"passwordLogin": "true", "passwordOption": "false"})
+
+
 PASSKEY_ACTION = "webauthn-register-passwordless"
 
 
@@ -1862,6 +2023,7 @@ def main():
     registration_cap(realm, args.identifier_first, args.organization)
     two_factor(realm, args.identifier_first, args.organization)
     password_switch(realm, args.identifier_first, args.organization)
+    password_option(realm, args.identifier_first, args.organization)
     passkey_switch(realm, args.identifier_first, args.organization)
     passkeys_in_browser(args.identifier_first, args.organization)
     setup_script_copy(args.identifier_first, args.organization)

@@ -72,7 +72,12 @@ Passwords are not needed for now but have to come back quickly (Thomas, 29.10.20
 switches them in one run: `--password off` sets `passwordLogin=false` in the forms and turns Keycloak's
 *Forgot password* off in the realm, so there is no reset page either, not even by its address;
 `--password on` brings both back - accounts registered through the link have no password and set one
-through *Passwort zurücksetzen*. API logins (direct grant) and demo accounts keep their passwords.
+through *Passwort vergessen oder noch keines?*. API logins (direct grant) and demo accounts keep their passwords.
+
+`--password option` (`passwordOption=true`, Username Password Form only) keeps the link as the main way in:
+the page stays as with `off` and gets the text link *Mit Passwort anmelden*, which opens the password field
+on the same page. *Forgot password* is on. Page, error and answer time do not depend on the address. A lock
+from guessed passwords stops the password only: the link still works, and the page does not mention the lock.
 
 Registration: if the realm lets people register, an unknown address gets an e-mail *Dein
 AutoLogg-Konto anlegen* instead of nothing - same waiting page; the link opens *Konto anlegen*
