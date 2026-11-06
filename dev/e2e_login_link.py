@@ -1450,6 +1450,22 @@ def password_option(realm, identifier_first, organization=False):
             print(out.stdout[-800:], out.stderr[-800:])
         configure_execution(admin_token(), realm, {"passwordLogin": "false", "passwordOption": "true"})
 
+        admin_call(realm, "PUT", "", {"bruteForceProtected": False})
+        out = run_setup_script(realm, "--brute-force", "on")
+        check(out.returncode == 0 and admin_call(realm, "GET", "")["bruteForceProtected"] is False, "--brute-force on, dry run: nothing changes")
+        out = run_setup_script(realm, "--brute-force", "on", "--apply", "--yes")
+        settings = admin_call(realm, "GET", "")
+        check(out.returncode == 0 and settings["bruteForceProtected"] is True and settings["permanentLockout"] is False
+              and settings["failureFactor"] == 5 and settings["waitIncrementSeconds"] == 60
+              and settings["maxFailureWaitSeconds"] == 900, "--brute-force on: temporary locks after 5 failures")
+        check(settings["browserFlow"] == before["browserFlow"] and settings["resetPasswordAllowed"] is True, "and nothing else in the realm")
+        out = run_setup_script(realm, "--brute-force", "on")
+        check(out.returncode == 0 and "Nothing to do" in out.stdout, "a second run has nothing to do")
+        out = run_setup_script(realm, "--brute-force", "off", "--apply", "--yes")
+        check(out.returncode == 0 and admin_call(realm, "GET", "")["bruteForceProtected"] is False, "--brute-force off")
+        out = run_setup_script(realm, "--brute-force", "on", "--password", "off")
+        check(out.returncode != 0 and "alone" in out.stderr, "--brute-force goes alone in its run")
+
         clear_mails()
         desk = Browser("desk", DESKTOP_UA)
         page = start_login(desk, realm)
@@ -1575,7 +1591,8 @@ def password_option(realm, identifier_first, organization=False):
         admin_call(realm, "DELETE", f"/attack-detection/brute-force/users/{find_users(realm, address)[0]['id']}")
     finally:
         restore = {k: before.get(k) for k in ("resetPasswordAllowed", "bruteForceProtected", "failureFactor", "waitIncrementSeconds",
-                                              "maxFailureWaitSeconds", "quickLoginCheckMilliSeconds", "minimumQuickLoginWaitSeconds")}
+                                              "maxFailureWaitSeconds", "quickLoginCheckMilliSeconds", "minimumQuickLoginWaitSeconds",
+                                              "permanentLockout", "maxDeltaTimeSeconds")}
         admin_call(realm, "PUT", "", restore)
         configure_execution(admin_token(), realm, {"passwordLogin": "true", "passwordOption": "false"})
 

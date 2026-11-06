@@ -78,6 +78,8 @@ through *Passwort vergessen oder noch keines?*. API logins (direct grant) and de
 the page stays as with `off` and gets the text link *Mit Passwort anmelden*, which opens the password field
 on the same page. *Forgot password* is on. Page, error and answer time do not depend on the address. A lock
 from guessed passwords stops the password only: the link still works, and the page does not mention the lock.
+Switch the realm's brute force detection on first (`--brute-force on`, off on staging and prod on 06.11.2026):
+temporary locks after 5 failures, 1 to 15 minutes, for the whole realm including API logins.
 
 Registration: if the realm lets people register, an unknown address gets an e-mail *Dein
 AutoLogg-Konto anlegen* instead of nothing - same waiting page; the link opens *Konto anlegen*
