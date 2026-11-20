@@ -211,6 +211,23 @@ sign-in asks for no app code. Keycloak's passkey pages come with our texts; the 
 suggests the device as the passkey's name. Details, the platforms of the app's login window (web popup,
 iOS `ASWebAuthenticationSession`, Android Auth Tab / Custom Tab) and tests: [docs/passkeys.md](docs/passkeys.md).
 
+### Logins started by the website
+
+A login of the client `autologg-website-v2` (the website and its shop, same id in both realms) gets the
+template attribute `website` from our forms (`LoginLinkWebsiteBean`); no other client does, so the app's
+and the portal's pages stay as they are. With it
+
+- the logo, "Datenschutz", "Impressum" and the terms box lead to the website the login came from
+  (scheme and host of the `redirect_uri`, paths from the `website…Path` texts) instead of the old website,
+- the login page is titled "Anmelden oder Konto anlegen",
+- a visitor in the middle of an order sees "Schritt 2 von 2: Bestellung abschließen" above the form and
+  the waiting page, with a link back to the checkout (`/de/shop/fahrtenbuch-lizenz/#kasse` on that website).
+
+The order hint follows the request parameter `al_flow` of the authorization request: `order` shows it, any
+other value does not. Without the parameter a `login_hint` stands for an order, because only the checkout
+asks for the address before the login. Keycloak's own pages in such a login (app code, errors) and the
+page opened from the e-mail do not know the attribute and keep the default links. e2e [28].
+
 ### Rollout per realm
 
 1. Build the jar (Azure pipeline or `./dev/build-provider.sh`) and upload it to Cloud-IAM as a new

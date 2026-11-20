@@ -516,6 +516,7 @@ final class LoginLinkFlow {
     private Response termsPage(boolean termsMissing, boolean otpChosen) {
         boolean otpOffered = otpOffered();
         LoginFormsProvider form = context.form();
+        LoginLinkWebsiteBean.offer(form, context.getAuthenticationSession());
         form.setAttribute(LoginLink.ATTR_TERMS, new LoginLinkTermsBean(note(LoginLink.NOTE_REGISTER), termsMissing,
                 otpOffered, otpOffered && otpChosen));
         return form.createForm(LoginLink.TEMPLATE_TERMS);
@@ -704,6 +705,7 @@ final class LoginLinkFlow {
                 .build().toString();
 
         LoginFormsProvider form = context.form();
+        LoginLinkWebsiteBean.offer(form, authSession);
         form.setAttribute(LoginLink.ATTR_SENT,
                 new LoginLinkSentBean(shown, statusUrl, config.codeLength, expiresIn, resendIn, back,
                         note(LoginLink.NOTE_DENIED) != null, mailbox(shown), isDesktop(),

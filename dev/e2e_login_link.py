@@ -1175,6 +1175,77 @@ def closed_login_tab(realm, app, scheme):
     check(not waiting_again(Browser("stranger", ANDROID_UA)), "another browser finds nothing")
 
 
+def website_shop(realm, identifier_first, organization=False):
+    print("\n[28] website: order hint and the website's own links, for its client only")
+    site = "https://www-test.autologg.example"
+    web = {"client_id": "autologg-website-v2", "redirect_uri": f"{site}/api/auth/callback"}
+    address = USER_WITH_PASSWORD[0]
+    old_privacy, old_imprint = "https://www.autologg.com/datenschutzinfo", "https://www.autologg.com/de/impressum/"
+    checkout = f'href="{site}/de/shop/fahrtenbuch-lizenz/#kasse"'
+    admin_call(realm, "POST", "/clients", {"clientId": web["client_id"], "publicClient": True, "standardFlowEnabled": True,
+                                           "redirectUris": [web["redirect_uri"]]})
+    client = admin_call(realm, "GET", f"/clients?clientId={web['client_id']}")[0]
+
+    def website_links(page_html, label):
+        check(f'class="al-brand" href="{site}/de/"' in page_html and f'href="{site}/datenschutzinfo"' in page_html
+              and f'href="{site}/de/impressum/"' in page_html and old_privacy not in page_html
+              and old_imprint not in page_html, f"{label}: logo, privacy and imprint lead to the website")
+
+    def order_hint(page_html):
+        return 'id="al-order-step"' in page_html and "Schritt 2 von 2" in page_html and checkout in page_html
+
+    try:
+        if not identifier_first and not organization:  # there Keycloak's own form asks for the address first
+            desk = Browser("desk", DESKTOP_UA)
+            page = start_login(desk, realm, {**web, "login_hint": address})
+            check(order_hint(desk.html), "checkout login (login_hint): order step with the way back to the checkout")
+            check(page.title == "Anmelden oder Konto anlegen", "the title speaks to new customers too")
+            check(page.forms["kc-form-login"]["fields"].get("username") == address, "the address is filled in")
+            website_links(desk.html, "login page")
+
+            start_login(desk, realm, {**web, "al_flow": "order"})
+            check(order_hint(desk.html), "al_flow=order without an address: order step")
+            start_login(desk, realm, {**web, "al_flow": "account", "login_hint": address})
+            check('id="al-order-step"' not in desk.html, "al_flow=account with an address: no order step")
+
+            page = start_login(desk, realm, web)
+            check('id="al-order-step"' not in desk.html and "fahrtenbuch-lizenz" not in desk.html,
+                  "account login of the website: no order step")
+            check(page.title == "Anmelden oder Konto anlegen", "same title")
+            website_links(desk.html, "account login")
+
+            page = start_login(desk, realm, {"login_hint": address, "al_flow": "order"})
+            check('id="al-order-step"' not in desk.html and site not in desk.html
+                  and old_privacy in desk.html and old_imprint in desk.html
+                  and 'class="al-brand" href="https://www.autologg.com"' in desk.html
+                  and page.title == "Bei deinem Konto anmelden",
+                  "another client with the same parameters: page as before")
+
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        page = send_link(desk, realm, address, identifier_first or organization, {**web, "login_hint": address})
+        check("kc-login-link-check-form" in page.forms and order_hint(desk.html), "waiting page keeps the order step")
+        website_links(desk.html, "waiting page")
+        link, _, _ = latest_mail(address)
+        other = Browser("other", PHONE_UA)
+        confirm = other.open(link)
+        other.submit(confirm.forms["kc-login-link-confirm-form"], None, "confirm")
+        try:
+            desk.submit(page.forms["kc-login-link-check-form"])
+        except urllib.error.URLError:
+            pass  # the test's website does not exist; the redirect to it is what counts
+        check(desk.code_from_redirects() is not None and any(u.startswith(web["redirect_uri"]) for u in desk.redirects),
+              "the confirmed login returns to the website's callback")
+
+        clear_mails()
+        desk = Browser("desk", DESKTOP_UA)
+        send_link(desk, realm, address, identifier_first or organization)
+        check('id="al-order-step"' not in desk.html and site not in desk.html and old_privacy in desk.html,
+              "waiting page of another client: as before")
+    finally:
+        admin_call(realm, "DELETE", f"/clients/{client['id']}")
+
+
 def registration_cap(realm, identifier_first, organization=False):
     print("\n[17] cap on registration e-mails")
     if identifier_first:
@@ -2037,6 +2108,7 @@ def main():
     registration_two_factor(realm, args.identifier_first, args.organization)
     exclusions(realm, args.identifier_first, args.organization)
     android_app(realm, args.identifier_first, args.organization)
+    website_shop(realm, args.identifier_first, args.organization)
     registration_cap(realm, args.identifier_first, args.organization)
     two_factor(realm, args.identifier_first, args.organization)
     password_switch(realm, args.identifier_first, args.organization)

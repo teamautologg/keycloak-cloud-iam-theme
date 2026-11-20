@@ -92,6 +92,8 @@ final class LoginLink {
     static final String ATTR_SENT = "loginLinkSent";
     static final String ATTR_CONFIRM = "loginLinkConfirm";
     static final String ATTR_TERMS = "loginLinkTerms";
+    /** Set for logins of the website only, see {@link LoginLinkWebsiteBean}. */
+    static final String ATTR_WEBSITE = "website";
     /** User attribute with the time the terms were accepted (epoch seconds), as Keycloak's own terms action keeps it. */
     static final String TERMS_ATTRIBUTE = "terms_and_conditions";
 

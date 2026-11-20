@@ -42,7 +42,9 @@ public class LoginLinkPasswordForm extends PasswordForm {
         if (isConditionalPasskeysEnabled(context.getUser())) {
             webauthnAuth.fillContextForm(context);
         }
-        context.challenge(createLoginForm(context.form()));
+        LoginFormsProvider form = context.form();
+        LoginLinkWebsiteBean.offer(form, context.getAuthenticationSession());
+        context.challenge(createLoginForm(form));
     }
 
     @Override
