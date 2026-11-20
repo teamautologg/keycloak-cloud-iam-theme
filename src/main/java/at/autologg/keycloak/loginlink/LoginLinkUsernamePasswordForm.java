@@ -212,6 +212,9 @@ public class LoginLinkUsernamePasswordForm extends UsernamePasswordForm {
     }
 
     private void offer(LoginFormsProvider form) {
+        if (context != null) {
+            LoginLinkWebsiteBean.offer(form, context.getAuthenticationSession());
+        }
         if (passwordOption) {
             form.setAttribute(LoginLink.ATTR_LOGIN_FORM,
                     new LoginLinkFormBean(passwordOpen, false, LoginLinkFormBean.STEP_SINGLE, null, true));

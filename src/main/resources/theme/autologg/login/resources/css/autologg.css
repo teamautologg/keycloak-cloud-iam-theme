@@ -1217,3 +1217,49 @@ details.al-code > form {
     line-height: 1.5;
 }
 
+
+/* ---------- Logins started by the website: "you are in the middle of an order" ---------- */
+
+.al-order-step {
+    margin: 0 0 20px;
+    padding: 12px 14px;
+    border: 1px solid var(--al-accent-border);
+    border-radius: var(--al-radius-control);
+    background: var(--al-accent-surface);
+}
+
+.al-order-step p {
+    margin: 0;
+}
+
+.al-order-step-title {
+    color: var(--al-text);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.al-order-step-text {
+    color: var(--al-text-body);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.al-card a.al-order-step-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.al-order-step-back svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* "New to AutoLogg?" in the text colour: on the website's login it speaks to most visitors. */
+.al-help.al-help-plain {
+    color: var(--al-text-body);
+}

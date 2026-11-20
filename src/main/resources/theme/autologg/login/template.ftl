@@ -29,6 +29,17 @@
 </#macro>
 
 <#macro registrationLayout bodyClass="" displayInfo=false displayMessage=true displayRequiredFields=false>
+<#-- Logins started by the website (attribute "website", our forms set it for that client only): logo and
+     legal links lead to the website the visitor came from instead of the old one. -->
+<#if website??>
+    <#assign homeUrl = website.origin + msg("websiteHomePath")>
+    <#assign privacyUrl = website.origin + msg("websitePrivacyPath")>
+    <#assign imprintUrl = website.origin + msg("websiteImprintPath")>
+<#else>
+    <#assign homeUrl = properties.kcLogoLink!'https://www.autologg.com'>
+    <#assign privacyUrl = msg("loginFooterPrivacyUrl")>
+    <#assign imprintUrl = msg("loginFooterImprintUrl")>
+</#if>
 <#-- Pages opened from an e-mail link carry the key in their URL; a language switch would drop it. -->
 <#assign showLocale = realm.internationalizationEnabled && locale?? && locale.supported?size gt 1 && !(loginLinkConfirm??)>
 <!DOCTYPE html>
@@ -161,7 +172,7 @@
 <div class="al-shell">
   <div class="al-pane">
     <header class="al-topbar">
-      <a class="al-brand" href="${properties.kcLogoLink!'https://www.autologg.com'}">
+      <a class="al-brand" href="${homeUrl}">
         <img src="${url.resourcesPath}/img/autologg-logo.svg" alt="AutoLogg" width="120" height="51">
       </a>
       <#if showLocale>
@@ -185,6 +196,17 @@
 
     <main class="${properties.kcLoginMain!} al-card">
       <div class="${properties.kcLoginMainHeader!}">
+        <#-- A visitor in the middle of an order: say so, and offer the way back to the checkout. -->
+        <#if website?? && website.order>
+          <div class="al-order-step" id="al-order-step">
+            <p class="al-order-step-title">${msg("websiteOrderStep")}</p>
+            <p class="al-order-step-text">${msg("websiteOrderStepText")}</p>
+            <a class="al-order-step-back" id="al-order-back" href="${website.checkoutUrl}">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/></svg>
+              ${msg("websiteOrderBack")}
+            </a>
+          </div>
+        </#if>
         <#nested "beforeHeader">
         <h1 class="${properties.kcLoginMainTitle!}" id="kc-page-title"><#nested "header"></h1>
       </div>
@@ -276,8 +298,8 @@
 
     <footer class="al-legal">
       <a href="${msg("loginFooterHelpUrl")}" target="_blank" rel="noopener noreferrer">${msg("loginFooterHelp")}</a>
-      <a href="${msg("loginFooterPrivacyUrl")}" target="_blank" rel="noopener noreferrer">${msg("loginFooterPrivacy")}</a>
-      <a href="${msg("loginFooterImprintUrl")}" target="_blank" rel="noopener noreferrer">${msg("loginFooterImprint")}</a>
+      <a href="${privacyUrl}" target="_blank" rel="noopener noreferrer">${msg("loginFooterPrivacy")}</a>
+      <a href="${imprintUrl}" target="_blank" rel="noopener noreferrer">${msg("loginFooterImprint")}</a>
     </footer>
   </div>
 </div>

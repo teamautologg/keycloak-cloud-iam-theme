@@ -27,7 +27,7 @@
             </form>
         </#if>
     <#elseif section = "header">
-        <#if step == "choice">${msg("loginLinkChoiceTitle")}<#else>${msg("loginAccountTitle")}</#if>
+        <#if step == "choice">${msg("loginLinkChoiceTitle")}<#elseif website??>${msg("websiteLoginTitle")}<#else>${msg("loginAccountTitle")}</#if>
     <#elseif section = "form">
         <div id="kc-form">
           <div id="kc-form-wrapper">
@@ -153,10 +153,10 @@
                     </@buttons.actionGroup>
                     <#if passwordOption>
                         <#if !passwordOpen && realm.registrationAllowed && !usernameHidden??>
-                            <p class="al-help">${msg("loginLinkOnlyRegisterHelp")}</p>
+                            <p class="al-help<#if website??> al-help-plain</#if>">${msg("loginLinkOnlyRegisterHelp")}</p>
                         </#if>
                     <#elseif loginLink?? && !passwordShown>
-                        <p class="al-help">${msg("loginLinkOnlyHelp")}<#if realm.registrationAllowed && !usernameHidden??><br>${msg("loginLinkOnlyRegisterHelp")}</#if></p>
+                        <p class="al-help<#if website??> al-help-plain</#if>">${msg("loginLinkOnlyHelp")}<#if realm.registrationAllowed && !usernameHidden??><br>${msg("loginLinkOnlyRegisterHelp")}</#if></p>
                     </#if>
                 </form>
             </#if>
